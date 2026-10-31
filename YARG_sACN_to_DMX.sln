@@ -5,6 +5,10 @@ VisualStudioVersion = 17.12.35527.113 d17.12
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YARG_sACN_to_DMX", "YARG_sACN_to_DMX.csproj", "{F6F7AA49-ED33-4520-A440-45FE7BB0D4EB}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{5C545E60-98F7-43AD-A7A5-B463E1B4CA93}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Interpreter.Tests", "tests\Interpreter.Tests\Interpreter.Tests.csproj", "{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,8 +19,15 @@ Global
 		{F6F7AA49-ED33-4520-A440-45FE7BB0D4EB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F6F7AA49-ED33-4520-A440-45FE7BB0D4EB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F6F7AA49-ED33-4520-A440-45FE7BB0D4EB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9EB98C1B-3ED5-4209-9CDA-BA49517112F5} = {5C545E60-98F7-43AD-A7A5-B463E1B4CA93}
 	EndGlobalSection
 EndGlobal

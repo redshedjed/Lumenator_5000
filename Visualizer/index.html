@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DMX Visualizer</title>
+<style>
+  :root { --bg: #07080b; --panel: #11131a; --line: #23262f; --text: #d8dbe3; --dim: #7c8190; --on: #ffd23f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 18px; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header b { font-size: 15px; }
+  .kv { color: var(--dim); } .kv span { color: var(--text); font-weight: 600; margin-left: 4px; }
+  #stage { position: relative; height: 56vh; min-height: 280px; overflow: hidden; background: #040507; }
+  #wall { position: absolute; inset: 0; }
+  .fx { position: absolute; transform: translate(-50%, -50%); text-align: center; }
+  .lens { width: 46px; height: 46px; border-radius: 50%; border: 3px solid #2a2d36; margin: 0 auto; background: #000; }
+  .fx .name { color: var(--dim); font-size: 11px; margin-top: 6px; white-space: nowrap; }
+  .fx .dmx { color: #4d5260; font: 10px ui-monospace, monospace; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 12px 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+  .trig { display: inline-flex; align-items: center; gap: 6px; margin: 0 14px 6px 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: #262933; transition: background .12s; }
+  .dot.hot { background: var(--on); transition: none; box-shadow: 0 0 8px var(--on); }
+  #kit { display: grid; grid-template-columns: 50px repeat(8, 18px); gap: 4px; align-items: center; }
+  #kit .led { width: 14px; height: 14px; border-radius: 50%; background: #1d2028; }
+  .warn { color: #ffb15c; }
+</style>
+</head>
+<body>
+<header>
+  <b>DMX Visualizer</b>
+  <div class="kv">input<span id="src">-</span></div>
+  <div class="kv">cue<span id="cue">-</span></div>
+  <div class="kv">look<span id="look">-</span></div>
+  <div class="kv">strobe<span id="strobe">-</span></div>
+  <div class="kv">fog<span id="fog">-</span></div>
+  <div class="kv">tempo<span id="bpm">-</span></div>
+  <div class="kv">outputs<span id="outs">-</span></div>
+</header>
+<div id="stage"><canvas id="wall"></canvas></div>
+<main>
+  <section><h2>Triggers from YARG</h2><div id="trigs"></div></section>
+  <section><h2>YARG Stage Kit lights (input)</h2><div id="kit"></div></section>
+  <section><h2>Notes</h2><div id="notes" class="kv">waiting for the interpreter...</div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const stage = $('stage'), wall = $('wall'), ctx = wall.getContext('2d');
+const TRIGS = ['Beat', 'Downbeat', 'Keyframe', 'Snare', 'Kick', 'Cymbal', 'Bonus', 'Guitar', 'Bass', 'Keys'];
+const KIT = [['red', '#ff3030'], ['green', '#30ff60'], ['blue', '#3080ff'], ['yellow', '#ffb000']];
+let fixtures = [], lastCounts = {}, hotUntil = {};
+
+$('trigs').innerHTML = TRIGS.map(t => `<span class="trig"><span class="dot" id="t-${t}"></span>${t}</span>`).join('');
+$('kit').innerHTML = KIT.map(([name]) =>
+  `<span class="kv">${name}</span>` + [...Array(8)].map((_, i) => `<span class="led" id="k-${name}-${i}"></span>`).join('')).join('');
+
+function layout(list) {
+  stage.querySelectorAll('.fx').forEach(e => e.remove());
+  fixtures = list.map(f => {
+    const el = document.createElement('div');
+    el.className = 'fx';
+    el.style.left = (f.x * 100) + '%';
+    el.style.top = (15 + f.y * 25) + '%';
+    el.innerHTML = `<div class="lens"></div><div class="name">${f.name}</div><div class="dmx"></div>`;
+    stage.appendChild(el);
+    return { ...f, el, lens: el.querySelector('.lens'), dmx: el.querySelector('.dmx') };
+  });
+}
+
+function draw(colours) {
+  const w = wall.width = stage.clientWidth, h = wall.height = stage.clientHeight;
+  ctx.globalCompositeOperation = 'lighter';
+  colours.forEach((c, i) => {
+    const f = fixtures[i]; if (!f) return;
+    const [r, g, b] = c, x = f.x * w, y = (0.15 + f.y * 0.25) * h;
+    const level = Math.max(r, g, b) / 255;
+    if (level <= 0) return;
+    // beam down to the floor, then a pool of light
+    const beam = ctx.createLinearGradient(0, y, 0, h);
+    beam.addColorStop(0, `rgba(${r},${g},${b},${0.35 * level})`);
+    beam.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = beam;
+    ctx.beginPath(); ctx.moveTo(x - 14, y); ctx.lineTo(x + 14, y); ctx.lineTo(x + w * 0.09, h); ctx.lineTo(x - w * 0.09, h); ctx.fill();
+    const pool = ctx.createRadialGradient(x, y, 0, x, y, w * 0.16);
+    pool.addColorStop(0, `rgba(${r},${g},${b},${0.45 * level})`);
+    pool.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = pool; ctx.fillRect(0, 0, w, h);
+  });
+  colours.forEach((c, i) => {
+    const f = fixtures[i]; if (!f) return;
+    const [r, g, b] = c;
+    f.lens.style.background = `rgb(${r},${g},${b})`;
+    f.lens.style.boxShadow = Math.max(r, g, b) > 0 ? `0 0 22px 6px rgb(${r},${g},${b})` : 'none';
+  });
+}
+
+const es = new EventSource('/events');
+es.onmessage = ev => {
+  const d = JSON.parse(ev.data);
+  if (!d.fixtures) return;
+  if (d.layout !== layout.key) { layout.key = d.layout; layout(d.fixtures); }
+  draw(d.colours);
+  d.dmx.forEach((v, i) => fixtures[i] && (fixtures[i].dmx.textContent = v));
+  $('src').textContent = d.input; $('cue').textContent = d.cue; $('look').textContent = d.look;
+  $('strobe').textContent = d.strobe; $('fog').textContent = d.fog ? 'on' : 'off';
+  $('bpm').textContent = d.bpm ? Math.round(d.bpm) + ' bpm' : '-'; $('outs').textContent = d.outputs;
+  const now = performance.now();
+  TRIGS.forEach(t => {
+    if (lastCounts[t] !== undefined && d.counts[t] !== lastCounts[t]) hotUntil[t] = now + 90;
+    lastCounts[t] = d.counts[t];
+    $('t-' + t).classList.toggle('hot', (hotUntil[t] || 0) > now);
+  });
+  KIT.forEach(([name, col], c) => d.kit[c].forEach((on, i) => $(`k-${name}-${i}`).style.background = on ? col : ''));
+  $('notes').innerHTML = d.notes.length ? d.notes.map(n => `<div class="warn">${n}</div>`).join('') : 'ok';
+};
+es.onerror = () => { $('src').textContent = 'disconnected'; };
+</script>
+</body>
+</html>

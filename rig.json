@@ -1,0 +1,80 @@
+// The rig and the show. Saved changes are picked up while it runs (a broken file keeps the last good one).
+{
+  // YARG: Settings > All Settings > Lighting > DMX. Universe and channels must match what YARG sends.
+  "universe": 1,
+  // YARG's default channels. They overlap (YARG's fog/strobe lists run through 14/15/22/23/30), so fog
+  // on reads as every drum hit at once. Better: move the game channels in YARG to free ones (e.g. 101-109)
+  // and set the same numbers here.
+  "channels": {
+    "fog": 6, "strobe": 7, "cue": 8, "beatline": 14, "bonus": 15, "keyframe": 16,
+    "drums": 22, "post_processing": 23, "guitar": 24, "bass": 30, "keys": 32
+  },
+  "output": {
+    "fps": 40,
+    "ftdi": false,          // true: FTDI USB-DMX cable (untested)
+    "sacn_universe": 0,     // e.g. 2: also send the result as sACN (QLC+, an Art-Net/sACN node...)
+    "visualizer_port": 8080
+  },
+  "master": 1.0,
+  // software strobe over everything while YARG's strobe is on (Hz; 0 = ignore YARG's strobe)
+  "strobe_hz": { "Slow": 4, "Medium": 7, "Fast": 10, "Fastest": 15 },
+
+  // offsets from the fixture's address. par7 = the 7-channel PARs the original bridge used
+  // (1 dimmer, 2-4 RGB, 5 RGB macro, 6 strobe, 7 mode: 5-7 held at 0, the strobe is done in software)
+  "profiles": {
+    "par7": { "dimmer": 1, "red": 2, "green": 3, "blue": 4, "fixed": { "5": 0, "6": 0, "7": 0 } }
+  },
+  // left to right; x/y place them on the visualizer (0-1) and default to an even row
+  "fixtures": [
+    { "name": "PAR 1", "address": 1,  "profile": "par7" },
+    { "name": "PAR 2", "address": 8,  "profile": "par7" },
+    { "name": "PAR 3", "address": 15, "profile": "par7" },
+    { "name": "PAR 4", "address": 22, "profile": "par7" },
+    { "name": "PAR 5", "address": 29, "profile": "par7" },
+    { "name": "PAR 6", "address": 36, "profile": "par7" },
+    { "name": "PAR 7", "address": 43, "profile": "par7" },
+    { "name": "PAR 8", "address": 50, "profile": "par7" }
+  ],
+
+  // red/green/blue/yellow are also the Stage Kit lamp colours for the "stagekit" look
+  "palette": {
+    "red": "#ff0000", "green": "#00ff00", "blue": "#0000ff", "yellow": "#ffa000",
+    "purple": "#8000ff", "white": "#ffffff", "amber": "#ff6000", "cyan": "#00c0ff"
+  },
+
+  // types: stagekit (YARG's own pattern), solid, pulse, flash, chaos, police, blackout
+  // pattern: alternate | halves | all | chase     trigger: beat | downbeat | keyframe | snare | kick |
+  // cymbal | bonus | guitar | bass | keys | rate (rate_hz)
+  "looks": {
+    "stagekit": { "type": "stagekit" },
+    "blackout": { "type": "blackout" },
+    "pulse-green-purple": {
+      "type": "pulse", "colors": ["green", "purple"], "pattern": "alternate",
+      "trigger": "beat", "decay": 0.3, "floor": 0.15, "accent": 1.6
+    },
+    "snare-strobe": {
+      "type": "flash", "colors": ["white"], "trigger": "keyframe", "decay": 0.06, "floor": 0
+    },
+    "chaos": {
+      "type": "chaos", "colors": [], "trigger": "beat", "density": 0.6, "decay": 0.4, "floor": 0.3
+    },
+    "police": {
+      "type": "police", "colors": ["red", "blue"], "pattern": "halves", "flashes": 2, "trigger": "beat"
+    }
+  },
+
+  // YARG cue -> look; "*" covers the rest. Cues: Intro Verse Chorus CoolLoop WarmLoop CoolManual
+  // WarmManual Dischord Stomp Default Harmony Frenzy Silhouettes SilhouettesSpotlight Searchlights
+  // Sweep BlackoutFast BlackoutSlow BlackoutSpotlight FlareSlow FlareFast BigRockEnding Menu Score NoCue
+  "cues": {
+    "Intro": "pulse-green-purple",
+    "BlackoutFast": "blackout",
+    "BlackoutSlow": "blackout",
+    "BlackoutSpotlight": "blackout",
+    "Stomp": "snare-strobe",
+    "Dischord": "snare-strobe",
+    "Frenzy": "chaos",
+    "Searchlights": "police",
+    "*": "stagekit"
+  }
+}

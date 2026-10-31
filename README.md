@@ -1,80 +1,95 @@
-# YARG_sACN_to_DMX
+# YARG DMX interpreter
 
-This program reads [sACN](https://store.chipkin.com/articles/streaming-architecture-for-control-networks-sacn) data from YARG,
-transforms it to match 2, 4, or 8 [DMX](https://en.wikipedia.org/wiki/DMX512) lights,
-and then sends the resulting DMX universe 
-over an FTDI-based USB->DMX converter, such as this one: [DSD TECH USB to DMX cable](https://www.amazon.com/gp/product/B07WV6P5W6)
+A fork of [Nyxyxylyth/YARG_sACN_to_DMX](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX). The original
+copied YARG's Stage Kit lights straight onto 2, 4 or 8 PARs (its README is in
+[README.original.md](README.original.md)). This version *interprets* what YARG sends: each lighting cue
+in the song's VENUE track picks a **look** from `rig.json`, and YARG's beat, keyframe and drum
+triggers drive it.
 
-YARG's sACN data is conceptually based on the PDP Rock Band Stage Kit:
-- inner diamond of 8 blue lights
-- concentric circle of 8 green lights
-- outer circle of alternating red and orange lights
+- **The chart says what and when.** Cues, keyframes, blackouts, strobe and fog come from the song.
+- **`rig.json` says how it looks on your lights.** Fixtures, grouping, colours, intensity curves and
+  randomness. Save it while the program runs and it reloads.
 
-    ![](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX/blob/master/stagekit.gif)
+With no DMX hardware, the **visualizer** (http://localhost:8080/) is the output: it draws each
+fixture from the exact DMX universe that would be sent. **`--sim`** stands in for YARG: it sends a
+looping demo song as real sACN, so you can tune without the game.
 
-And a separate strobe light.
+## Run it
 
-This program remaps the 8 sets of Stage Kit LEDs to 2, 4, or 8 cheap DMX [PAR](https://hyliteledlighting.com/2020/05/12/br-vs-par-bulbs/) lights, following these rules:
-- Blue -> Blue, Red -> Red, Green -> Green (reducing 24 LEDs to the 3 component colors within 2, 4, or 8 PAR lights)
-- Orange = red 255 + green 128
-- If strobe is set: change all lights to white, and set all DMX strobe channels
-- In 2-light mode:
-  - Stage kit LED sets 1, 3, 5, and 7 drive DMX light 1
-  - Stage kit LED sets 2, 4, 6, and 8 drive DMX light 2
-  - This generally works out as a nice alternating pattern
-- In 4-light mode:
-  - Stage kit LED sets 1 and 5 drive DMX light 1
-  - Stage kit LED sets 2 and 6 drive DMX light 2
-  - Stage kit LED sets 3 and 7 drive DMX light 3
-  - Stage kit LED sets 4 and 8 drive DMX light 4
-  - This generally means marching left to right or right to left
-  - [4-light demo on YouTube](https://www.youtube.com/watch?v=yCDondbEzHc)
-- In 8-light mode, each of the 8 Stage kit LED sets drives one DMX light.
-  - [8-light demo on YouTube](https://youtu.be/IIHRgSiQf0o)
+Needs the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 
+```
+dotnet run -- --sim          # demo song, no YARG needed; open http://localhost:8080/
+dotnet run                   # listen for YARG
+dotnet test tests/Interpreter.Tests
+```
 
-## How to run it
+Options: `--rig path/to/rig.json` (default: `rig.json` in the current folder), `--port 8080`,
+`--no-visualizer`.
 
-You'll need:
-- An FTDI-based USB->DMX converter, such as this one: [DSD TECH USB to DMX cable](https://www.amazon.com/gp/product/B07WV6P5W6)
-- 2, 4, or 8 DMX lights with the same 7-channel mapping as these OOPSK 36LEDs RGB PAR Lights: [36W LED PAR Can Lights](https://www.amazon.com/gp/product/B0CJLD5QXY).  Note that each light is a "wash" light, designed to produce a single color.  There are 36 x 1W LEDs: that means 12 blue, 12 red, and 12 green, where the LEDs of each color are all controlled as one, and are *not* individually addressable. I was going to get one of those ridiculous spinning laser things, but that's simply too much stimulation for my tired old retinas.
-- [Microsoft's .NET 9.0 framework](https://aka.ms/dotnet-core-applaunch?framework=Microsoft.NETCore.App&framework_version=9.0.0) for your platform of choice
-- If you just want to run the software, head to the [releases](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX/releases) page, download the zip, expand it, and run YARG_sACN_to_DMX.exe
-- You'll also need a male-female cable to daisy-chain each light's DMX out to the next light's DMX in.  These can be stubby little cables like [3.2ft DMX cable](https://www.amazon.com/gp/product/B07D4FMQK4).  You can run up to 1000 feet total.
-- Run [YARG](https://yarg.in/).
-- In YARG, enable DMX output via Settings -> All Settings -> Lighting General: Enable DMX output
-- Depending on cable length and number of lights, you may need a 120-ohm [DMX terminator](https://www.amazon.com/gp/product/B000PO1H94) plugged in to the last light's DMX out in the chain.
-- Each light must be configured in 7-channel mode, configured by buttons on the back, to display on the back panel:
-  - A001, A008 (2-light mode)
-  - A001, A008, A015, A022 (4-light mode)
-  - A001, A008, A015, A022, A029, A036, A043, A050 (8-light mode)
-- Manual controls in the console application:
-  - L key: select 2/4/8 lights
-  - M key: reduce master dimming level by 16 with every press (wrapping back around to 255 after 15)
-  - 0-7:  activate manual control for one light at a time.  That will keep the blue lights of one DMX light on, to help you aim the light properly.  Manual mode persists until you either select a different number, or press the same number again to switch back to automatic mode.
+In YARG: Settings > All Settings > Lighting > **Enable DMX output**, universe 1 (`universe` in
+`rig.json`). YARG sends multicast on the same PC, which this picks up.
 
-## Other stuff
+### Move YARG's game channels (recommended)
 
-This is the DMX 7-channel mapping used by the OOPSK lights.  There is no standard for DMX channel definitions, so other lights may be different:
-- 1: Master Dimmer
-- 2: Red Dimmer
-- 3: Green Dimmer
-- 4: Blue Dimmer
-- 5: RGB (always set to 0)
-- 6: Strobe speed
-- 7: Mode (always set to 0)
+YARG's default DMX channels overlap. Its fog and strobe lists (6, 14, 22, 30... and 7, 15, 23...)
+run over the beatline (14), bonus (15), drums (22), post-processing (23) and bass (30) channels. With
+fog on, the drum channel reads as every pad hit at once. The interpreter ignores values YARG never
+sends on beat, keyframe and bonus, but it can't tell for drums. In YARG's advanced DMX settings, move
+the game channels to free ones, for example cue 101, beatline 102, bonus 103, keyframe 104, drums 105,
+post-processing 106, guitar 107, bass 108, keys 109, and put the same numbers under `channels` in
+`rig.json`. The visualizer warns when fog is on with the default layout.
 
-The low-rent USB->DMX adapter I used does not have optical isolation, so beware of [ESD](https://en.wikipedia.org/wiki/Electrostatic_discharge):
-- Touch something tied to earth ground before touching the USB interface, lights, or DMX cables
-- ESD is more likely in low-humidity environments - a humidifier can help
-- Shuffling your feet with some combinations of footwear and floor coverings (e.g., shag carpet) is a particularly bad idea
-- Power the computer and the lights from the same circuit if you can
+## rig.json
 
-## How to build it
+- `fixtures`: name, DMX `address`, `profile`, and optional `x`/`y` for the visualizer (0-1).
+  Listed left to right; "halves" and "alternate" go by this order.
+- `profiles`: channel offsets per fixture type (`dimmer`, `red`, `green`, `blue`, optional `white`,
+  and `fixed` channels held at a value). `par7` is the original's 7-channel PAR.
+- `palette`: colour names. `red`/`green`/`blue`/`yellow` are also the Stage Kit lamp colours.
+- `looks`: what the lights do while a cue is up.
+- `cues`: YARG cue to look; `"*"` covers every other cue.
+- `strobe_hz`: YARG's strobe cues become a white software strobe over any look (0 to ignore them).
+- `output`: `ftdi` (USB-DMX cable), `sacn_universe` (also send the result as sACN, e.g. to QLC+ or
+  a network DMX node), `fps`, `visualizer_port`.
 
-This C# program builds with [Microsoft Visual Studio Community 2022](https://visualstudio.microsoft.com/downloads/).
+### Looks
 
-This project relies on these GitHub projects:
-- https://github.com/Nyxyxylyth/DMX.NET (forked from https://github.com/wberdowski/DMX.NET/tree/master/Dmx.Net to allow hot attach and reconnecting)
-- https://github.com/HakanL/Haukcode.sACN
+| type | does | uses |
+|---|---|---|
+| `stagekit` | YARG's own Stage Kit pattern, positions folded onto your fixtures (i, i+n...) | palette red/green/blue/yellow |
+| `solid` | colours by pattern | `colors`, `pattern` |
+| `pulse` | colours by pattern, brightness kicked on each trigger, fading to `floor` | `trigger`, `decay`, `floor`, `accent` (downbeat louder), `pattern: chase` steps a light per trigger |
+| `flash` | first colour flashes on each trigger over the second at `floor` | `trigger`, `decay` |
+| `chaos` | a new random draw per trigger: `density` of the lights, random colours (random hues if `colors` is empty) | `trigger`, `density`, `decay`, `floor` |
+| `police` | two sides take turns, `flashes` each, side colours `colors[0]` / `colors[1]` | `pattern` (halves / alternate), `trigger: rate` + `rate_hz`, or any trigger = paced to the beat |
+| `blackout` | all off | |
 
+Triggers: `beat`, `downbeat`, `keyframe`, `snare`, `kick`, `cymbal`, `bonus`, `guitar`, `bass`,
+`keys`, or `rate` (a clock at `rate_hz`). Keyframes come from the chart (VENUE notes 48-50), so they
+land exactly where they were charted; the drum triggers come from YARG's drum channel.
+
+The default `rig.json` maps `Intro` to a green/purple pulse, the blackouts to black, `Stomp` /
+`Dischord` to a white flash per keyframe, `Frenzy` to chaos, `Searchlights` to red/blue police
+lights, and everything else to the Stage Kit pattern.
+
+## What YARG sends
+
+sACN on one universe (multicast, about 44 frames/s): 8 positions × red/green/blue/yellow Stage Kit
+LEDs, fog, strobe (off/slow/medium/fast/fastest), and the game channels: cue (a value per cue),
+beatline (1 bar line, 11 beat), keyframe (3 next, 13 previous, 23 first), bonus effect (2), post-
+processing, and bitmasks of the notes on drums / guitar / bass / keys. Triggers are pulses held for
+YARG's `DMXPulseDuration` (60 ms by default), so two of the same within one pulse count as one.
+Spotlights, sing-alongs and camera cuts aren't in YARG's sACN output (only its UDP data stream).
+
+## Status
+
+- Tested: the sACN receiver, decoder, every look, the visualizer stream and live reload, with the
+  simulator. Tests: `dotnet test tests/Interpreter.Tests`.
+- Not tested: real YARG output, and the FTDI cable output (written from the FTDI D2XX and Open DMX
+  docs; it needs FTDI's driver, which provides `ftd2xx.dll`).
+
+## Credits
+
+Neal Manson's [YARG_sACN_to_DMX](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX) (MIT), for the
+idea, the Stage Kit-to-PAR mapping and the PAR profile.
