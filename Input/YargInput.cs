@@ -20,7 +20,22 @@ public enum Drum : byte
     YellowCymbal = 32, BlueCymbal = 64, GreenCymbal = 128,
 }
 
-public enum Trigger { Beat, Downbeat, Keyframe, Snare, Kick, Cymbal, Bonus, Guitar, Bass, Keys }
+/// <summary>YARG's screen effects as it sends them on the post-processing channel.</summary>
+public enum PostProcessing : byte
+{
+    Default = 0, Bloom = 4, Bright = 14, Contrast = 24, Mirror = 34, PhotoNegative = 44, Posterize = 54,
+    BlackAndWhite = 64, SepiaTone = 74, SilverTone = 84, ChoppyBlackAndWhite = 94, PhotoNegativeRedAndBlack = 104,
+    PolarizedBlackAndWhite = 114, PolarizedRedAndBlue = 124, DesaturatedRed = 134, DesaturatedBlue = 144,
+    ContrastRed = 154, ContrastGreen = 164, ContrastBlue = 174, GrainyFilm = 184, GrainyChromaticAbberation = 194,
+    Scanlines = 204, ScanlinesBlackAndWhite = 214, ScanlinesBlue = 224, ScanlinesSecurity = 234,
+    Trails = 244, TrailsLong = 252, TrailsDesaturated = 253, TrailsFlickery = 254, TrailsSpacey = 255,
+}
+
+/// <summary>The note channels. Guitar / bass / keys bits: 1 open, 2 green, 4 red, 8 yellow, 16 blue,
+/// 32 orange; drums: see <see cref="Drum"/>.</summary>
+public enum Instrument { Guitar, Bass, Keys, Drums }
+
+public enum Trigger { Beat, Downbeat, Keyframe, Snare, Kick, Tom, Cymbal, Drums, Bonus, Guitar, Bass, Keys, Cue }
 
 /// <summary>Where YARG puts each thing (1-based DMX channels). Defaults are YARG's own
 /// (SettingsManager.Settings DMX*Channel[s]); change them here if you changed them in YARG.</summary>
@@ -70,23 +85,40 @@ public sealed class YargState
     public Cue Cue = Cue.NoCue;
     public Strobe Strobe;
     public bool Fog;
-    public byte PostProcessing;
+    public PostProcessing PostProcessing;
     public Drum DrumsHeld;
+    /// <summary>The note bits each <see cref="Instrument"/> is holding, and when each bit was last held.</summary>
+    public byte[] Held = new byte[4];
+    public double[,] HeldAt = new double[4, 8];
+    /// <summary>Where the keyframes have walked to: Next +1, Previous -1, First back to 0.</summary>
+    public int KeyframeStep, KeyframePrev;
     public long[] Counts = new long[Enum.GetValues<Trigger>().Length];
     public double[] LastAt = Enumerable.Repeat(double.NegativeInfinity, Enum.GetValues<Trigger>().Length).ToArray();
     public double CueSince;
+    /// <summary><see cref="Counts"/> as they were when the current cue began.</summary>
+    public long[] CountsAtCue = new long[Enum.GetValues<Trigger>().Length];
     public double BeatPeriod = 60.0 / 120;       // seconds, from the beatline
     public double LastFrameAt = double.NegativeInfinity;
 
     public long Count(Trigger t) => Counts[(int)t];
     public double Since(Trigger t, double now) => now - LastAt[(int)t];
 
+    public YargState()
+    {
+        for (int i = 0; i < 4; i++)
+            for (int bit = 0; bit < 8; bit++)
+                HeldAt[i, bit] = double.NegativeInfinity;
+    }
+
     public YargState Clone()
     {
         var c = (YargState)MemberwiseClone();
         c.Leds = (bool[,])Leds.Clone();
         c.Counts = (long[])Counts.Clone();
+        c.CountsAtCue = (long[])CountsAtCue.Clone();
         c.LastAt = (double[])LastAt.Clone();
+        c.Held = (byte[])Held.Clone();
+        c.HeldAt = (double[,])HeldAt.Clone();
         return c;
     }
 }
@@ -136,8 +168,11 @@ public sealed class YargDecoder
             {
                 s.Cue = (Cue)cue;
                 s.CueSince = now;
+                Fire(s, Trigger.Cue, now);
+                s.CountsAtCue = (long[])s.Counts.Clone();
             }
-            s.PostProcessing = At(f, m.PostProcessing);
+            if (At(f, m.PostProcessing) is var pp && Enum.IsDefined(typeof(PostProcessing), pp))
+                s.PostProcessing = (PostProcessing)pp;
 
             // pulses: only values YARG really sends count, so a fog/strobe channel sitting on the same
             // address (YARG's defaults) can't fire them
@@ -151,8 +186,12 @@ public sealed class YargDecoder
                 if (beat == 1)          // BeatlineType.Measure: the bar line
                     Fire(s, Trigger.Downbeat, now);
             }
-            if (Rising(f, m.Keyframe) is 3 or 13 or 23)
+            if (Rising(f, m.Keyframe) is var kf and (3 or 13 or 23))
+            {
+                s.KeyframePrev = s.KeyframeStep;
+                s.KeyframeStep = kf switch { 3 => s.KeyframeStep + 1, 13 => s.KeyframeStep - 1, _ => 0 };
                 Fire(s, Trigger.Keyframe, now);
+            }
             if (Rising(f, m.Bonus) == 2)
                 Fire(s, Trigger.Bonus, now);
 
@@ -161,10 +200,21 @@ public sealed class YargDecoder
             s.DrumsHeld = drums;
             if (hit.HasFlag(Drum.Red)) Fire(s, Trigger.Snare, now);
             if (hit.HasFlag(Drum.Kick)) Fire(s, Trigger.Kick, now);
+            if ((hit & (Drum.YellowPad | Drum.BluePad | Drum.GreenPad)) != 0) Fire(s, Trigger.Tom, now);
             if ((hit & (Drum.YellowCymbal | Drum.BlueCymbal | Drum.GreenCymbal)) != 0) Fire(s, Trigger.Cymbal, now);
+            if (hit != 0) Fire(s, Trigger.Drums, now);
             if (At(f, m.Guitar) is var g and not 0 && g != At(_prev, m.Guitar)) Fire(s, Trigger.Guitar, now);
             if (At(f, m.Bass) is var b and not 0 && b != At(_prev, m.Bass)) Fire(s, Trigger.Bass, now);
             if (At(f, m.Keys) is var k and not 0 && k != At(_prev, m.Keys)) Fire(s, Trigger.Keys, now);
+
+            int[] noteChannels = { m.Guitar, m.Bass, m.Keys, m.Drums };
+            for (int i = 0; i < 4; i++)
+            {
+                s.Held[i] = At(f, noteChannels[i]);
+                for (int bit = 0; bit < 8; bit++)
+                    if ((s.Held[i] & (1 << bit)) != 0)
+                        s.HeldAt[i, bit] = now;
+            }
 
             s.LastFrameAt = now;
             _prev = f;

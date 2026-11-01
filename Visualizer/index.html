@@ -26,33 +26,52 @@
   #kit { display: grid; grid-template-columns: 50px repeat(8, 18px); gap: 4px; align-items: center; }
   #kit .led { width: 14px; height: 14px; border-radius: 50%; background: #1d2028; }
   .warn { color: #ffb15c; }
+  #now { display: flex; flex-wrap: wrap; gap: 10px 36px; padding: 12px 16px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #now .slot { min-width: 0; }
+  #now .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  #now .big { font-size: 26px; font-weight: 700; line-height: 1.15; }
+  #now .small { color: var(--dim); font-size: 12px; min-height: 1.4em; }
+  #now .big.flash { color: var(--on); }
+  #now .big.off { color: var(--dim); font-weight: 600; }
 </style>
 </head>
 <body>
 <header>
   <b>DMX Visualizer</b>
   <div class="kv">input<span id="src">-</span></div>
-  <div class="kv">cue<span id="cue">-</span></div>
-  <div class="kv">look<span id="look">-</span></div>
   <div class="kv">strobe<span id="strobe">-</span></div>
   <div class="kv">fog<span id="fog">-</span></div>
   <div class="kv">tempo<span id="bpm">-</span></div>
   <div class="kv">outputs<span id="outs">-</span></div>
 </header>
+<div id="now">
+  <div class="slot"><div class="label">Cue</div><div class="big" id="cue">-</div><div class="small" id="cueFor"></div></div>
+  <div class="slot"><div class="label">Look</div><div class="big" id="look">-</div><div class="small">rig.json</div></div>
+  <div class="slot"><div class="label">Screen effect</div><div class="big" id="effect">-</div><div class="small" id="effectDoes"></div></div>
+</div>
 <div id="stage"><canvas id="wall"></canvas></div>
 <main>
   <section><h2>Triggers from YARG</h2><div id="trigs"></div></section>
+  <section><h2>Notes held</h2><div id="held"></div></section>
   <section><h2>YARG Stage Kit lights (input)</h2><div id="kit"></div></section>
   <section><h2>Notes</h2><div id="notes" class="kv">waiting for the interpreter...</div></section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
 const stage = $('stage'), wall = $('wall'), ctx = wall.getContext('2d');
-const TRIGS = ['Beat', 'Downbeat', 'Keyframe', 'Snare', 'Kick', 'Cymbal', 'Bonus', 'Guitar', 'Bass', 'Keys'];
+const TRIGS = ['Beat', 'Downbeat', 'Keyframe', 'Snare', 'Kick', 'Tom', 'Cymbal', 'Drums', 'Bonus', 'Guitar', 'Bass', 'Keys', 'Cue'];
+let cueSince = 0, lastCue = '';
 const KIT = [['red', '#ff3030'], ['green', '#30ff60'], ['blue', '#3080ff'], ['yellow', '#ffb000']];
+// each instrument's note bits, low to high, as [label, colour]
+const FRET = [['open', '#8040ff'], ['G', '#30ff60'], ['R', '#ff3030'], ['Y', '#ffd000'], ['B', '#3080ff'], ['O', '#ff7000']];
+const HELD = [['guitar', FRET], ['bass', FRET], ['keys', FRET],
+  ['drums', [['kick', '#ff7000'], ['R', '#ff3030'], ['Y', '#ffd000'], ['B', '#3080ff'], ['G', '#30ff60'],
+             ['Ycym', '#ffd000'], ['Bcym', '#3080ff'], ['Gcym', '#30ff60']]]];
 let fixtures = [], lastCounts = {}, hotUntil = {};
 
 $('trigs').innerHTML = TRIGS.map(t => `<span class="trig"><span class="dot" id="t-${t}"></span>${t}</span>`).join('');
+$('held').innerHTML = HELD.map(([name, bits], i) => `<div><span class="kv" style="display:inline-block;width:50px">${name}</span>` +
+  bits.map(([label], b) => `<span class="trig"><span class="dot" id="h-${i}-${b}"></span>${label}</span>`).join('') + '</div>').join('');
 $('kit').innerHTML = KIT.map(([name]) =>
   `<span class="kv">${name}</span>` + [...Array(8)].map((_, i) => `<span class="led" id="k-${name}-${i}"></span>`).join('')).join('');
 
@@ -103,8 +122,19 @@ es.onmessage = ev => {
   if (d.layout !== layout.key) { layout.key = d.layout; layout(d.fixtures); }
   draw(d.colours);
   d.dmx.forEach((v, i) => fixtures[i] && (fixtures[i].dmx.textContent = v));
-  $('src').textContent = d.input; $('cue').textContent = d.cue; $('look').textContent = d.look;
+  $('src').textContent = d.input; $('look').textContent = d.look;
+  if (d.cue !== lastCue) { lastCue = d.cue; cueSince = performance.now(); $('cue').textContent = d.cue; }
+  const held = (performance.now() - cueSince) / 1000;
+  $('cue').classList.toggle('flash', held < 0.6);
+  $('cueFor').textContent = held < 60 ? `for ${held.toFixed(0)} s` : `for ${Math.floor(held / 60)} min`;
+  $('effect').textContent = d.effect.replace(/([a-z])([A-Z])/g, '$1 $2');   // YARG's names: "Photo Negative Red And Black"
+  $('effect').classList.toggle('off', d.effect === 'Default');
+  $('effectDoes').textContent = d.effect === 'Default' ? 'none' : (d.effectDoes || 'screen only: lights unchanged');
   $('strobe').textContent = d.strobe; $('fog').textContent = d.fog ? 'on' : 'off';
+  HELD.forEach(([, bits], i) => bits.forEach(([, col], b) => {
+    const on = (d.held[i] >> b) & 1;
+    $(`h-${i}-${b}`).style.background = on ? col : '';
+  }));
   $('bpm').textContent = d.bpm ? Math.round(d.bpm) + ' bpm' : '-'; $('outs').textContent = d.outputs;
   const now = performance.now();
   TRIGS.forEach(t => {

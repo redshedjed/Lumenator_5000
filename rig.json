@@ -2,22 +2,25 @@
 {
   // YARG: Settings > All Settings > Lighting > DMX. Universe and channels must match what YARG sends.
   "universe": 1,
-  // YARG's default channels. They overlap (YARG's fog/strobe lists run through 14/15/22/23/30), so fog
-  // on reads as every drum hit at once. Better: move the game channels in YARG to free ones (e.g. 101-109)
-  // and set the same numbers here.
+  // Must match YARG's DMX settings. YARG's defaults, except post-processing: moved from 23 (in YARG's
+  // strobe list, so strobe changes wiped it) to 40, a spare slot. The rest still overlap YARG's
+  // fog/strobe lists (14/15/22/30), so fog on reads as every drum hit at once; to fix that, move them
+  // in YARG to free channels (e.g. 101-109) and set the same numbers here.
   "channels": {
     "fog": 6, "strobe": 7, "cue": 8, "beatline": 14, "bonus": 15, "keyframe": 16,
-    "drums": 22, "post_processing": 23, "guitar": 24, "bass": 30, "keys": 32
+    "drums": 22, "post_processing": 40, "guitar": 24, "bass": 30, "keys": 32
   },
   "output": {
     "fps": 40,
     "ftdi": false,          // true: FTDI USB-DMX cable (untested)
     "sacn_universe": 0,     // e.g. 2: also send the result as sACN (QLC+, an Art-Net/sACN node...)
-    "visualizer_port": 8080
+    "visualizer_port": 8080,
+    "fog_channel": 0        // e.g. 100: a fog machine's channel, 255 while YARG's fog is on
   },
   "master": 1.0,
-  // software strobe over everything while YARG's strobe is on (Hz; 0 = ignore YARG's strobe)
-  "strobe_hz": { "Slow": 4, "Medium": 7, "Fast": 10, "Fastest": 15 },
+  // software strobe over everything while YARG's strobe is on, in flashes per beat (0 = ignore it).
+  // Charts use Slow (8th notes) and Fast (16th notes).
+  "strobe_per_beat": { "Slow": 2, "Medium": 3, "Fast": 4, "Fastest": 6 },
 
   // offsets from the fixture's address. par7 = the 7-channel PARs the original bridge used
   // (1 dimmer, 2-4 RGB, 5 RGB macro, 6 strobe, 7 mode: 5-7 held at 0, the strobe is done in software)
@@ -36,45 +39,150 @@
     { "name": "PAR 8", "address": 50, "profile": "par7" }
   ],
 
-  // red/green/blue/yellow are also the Stage Kit lamp colours for the "stagekit" look
+  // red/green/blue/yellow/orange/purple are also the fret and drum colours for the "frets" look
   "palette": {
-    "red": "#ff0000", "green": "#00ff00", "blue": "#0000ff", "yellow": "#ffa000",
-    "purple": "#8000ff", "white": "#ffffff", "amber": "#ff6000", "cyan": "#00c0ff"
+    "red": "#ff0000", "green": "#00ff00", "blue": "#0000ff", "yellow": "#ffa000", "orange": "#ff4000",
+    "purple": "#8000ff", "white": "#ffffff", "amber": "#ff6000", "cyan": "#00c0ff", "indigo": "#1a0060"
   },
 
-  // types: stagekit (YARG's own pattern), solid, pulse, flash, chaos, police, blackout
-  // pattern: alternate | halves | all | chase     trigger: beat | downbeat | keyframe | snare | kick |
-  // cymbal | bonus | guitar | bass | keys | rate (rate_hz)
+  // types: solid, pulse, flash, step, toggle, chase, chaos, police, wave, frets, layers, blackout
+  //   (stagekit: YARG's own pattern)
+  // pattern: alternate | halves | all | chase
+  // trigger: beat | downbeat | keyframe | snare | kick | tom | cymbal | drums (any hit) | bonus | guitar |
+  //   bass | keys | cue (once, as the cue starts) | rate (rate_hz) | beats (every "beats" beats)
+  // fade: seconds to crossfade in from the previous look (default 0.3)
   "looks": {
-    "stagekit": { "type": "stagekit" },
-    "blackout": { "type": "blackout" },
-    "pulse-green-purple": {
-      "type": "pulse", "colors": ["green", "purple"], "pattern": "alternate",
-      "trigger": "beat", "decay": 0.3, "floor": 0.15, "accent": 1.6
+    // no cues from the chart: the rig plays the drums (kicks wash it orange) with the guitar on top
+    "band-drums": { "type": "frets", "instrument": "drums", "decay": 0.35, "floor": 0.12 },
+    "band-guitar": { "type": "frets", "instrument": "guitar", "decay": 0.2, "floor": 0 },
+    "band": { "type": "layers", "looks": ["band-drums", "band-guitar"] },
+
+    // slow colour waves for the menus: rate_hz 0.04 = 25 s round the colours
+    "menu-wave": { "type": "wave", "colors": ["blue", "purple", "cyan"], "rate_hz": 0.04, "spread": 0.5, "fade": 1.5 },
+    "score-wave": { "type": "wave", "colors": ["amber", "purple", "red", "yellow"], "rate_hz": 0.12, "spread": 0.75, "fade": 1 },
+
+    "intro": {
+      "type": "pulse", "colors": ["blue", "purple"], "trigger": "downbeat", "decay": 1.5, "floor": 0.25, "fade": 1
     },
-    "snare-strobe": {
-      "type": "flash", "colors": ["white"], "trigger": "keyframe", "decay": 0.06, "floor": 0
+
+    // keyframed cues: next steps on, previous steps back, first goes back to the start
+    "verse": { "type": "step", "colors": ["blue", "purple", "cyan"], "trigger": "keyframe", "decay": 0.6 },
+    // saturated red / blue on the keyframes, dipping between beats
+    "chorus": {
+      "type": "step", "colors": ["red", "blue"], "trigger": "keyframe", "decay": 0.15, "beat_pulse": 0.45
     },
-    "chaos": {
-      "type": "chaos", "colors": [], "trigger": "beat", "density": 0.6, "decay": 0.4, "floor": 0.3
+    "cool-manual": { "type": "step", "colors": ["blue", "cyan", "purple"], "pattern": "all", "trigger": "keyframe", "decay": 0.4 },
+    "warm-manual": { "type": "step", "colors": ["red", "amber", "yellow"], "pattern": "all", "trigger": "keyframe", "decay": 0.4 },
+    "default": { "type": "step", "colors": ["blue", "red", "purple", "amber"], "trigger": "keyframe", "decay": 0.4 },
+    // clashing colours stepping on keyframes, with a red hit on every snare
+    "dischord-step": { "type": "step", "colors": ["green", "purple", "red", "cyan"], "trigger": "keyframe", "decay": 0.1 },
+    "dischord-snare": { "type": "flash", "colors": ["red"], "trigger": "snare", "decay": 0.15, "floor": 0 },
+    "dischord": { "type": "layers", "looks": ["dischord-step", "dischord-snare"] },
+    // a white strobe hit on every keyframe (charts put them on the snare)
+    "stomp": { "type": "flash", "colors": ["white"], "trigger": "keyframe", "decay": 0.07, "floor": 0, "fade": 0 },
+    // stomp as all on or all off, flipped by each keyframe
+    "stomp-toggle": { "type": "toggle", "colors": ["white"], "pattern": "all", "trigger": "keyframe", "decay": 0.03, "fade": 0 },
+
+    // loops: coloured spots rolling round the rig (pairs, like YARG's Stage Kit)
+    "warm-loop": { "type": "chase", "colors": ["red", "yellow", "red", "amber"], "beats": 4, "width": 0.3 },
+    "cool-loop": { "type": "chase", "colors": ["blue", "green", "blue", "cyan"], "beats": 4, "width": 0.3 },
+    "harmony": { "type": "wave", "colors": ["purple", "cyan"], "beats": 8, "spread": 1 },
+    "frenzy": {
+      "type": "chaos", "colors": [], "trigger": "beats", "beats": 0.25, "density": 0.6, "decay": 0.12, "floor": 0.3,
+      "fade": 0
     },
+    // a slow breath of deep indigo
+    "silhouettes": { "type": "wave", "colors": ["indigo", "#06001a"], "beats": 8, "spread": 0, "fade": 0.25 },
+    // a spotlight on the guitarist: their notes on the rig
+    "spotlight": { "type": "frets", "instrument": "guitar", "decay": 0.3, "floor": 0.05 },
+    // two searchlights crossing back and forth, a pass every 2 beats
+    "searchlights": { "type": "chase", "colors": ["white", "yellow"], "beats": 4, "width": 0.22, "bounce": true },
+    // banks sweeping together, a lap every 4 beats
+    "sweep": { "type": "chase", "colors": ["white", "blue"], "beats": 4, "width": 0.35 },
     "police": {
       "type": "police", "colors": ["red", "blue"], "pattern": "halves", "flashes": 2, "trigger": "beat"
+    },
+
+    // accents: flares are one white hit as the cue starts; blackouts fade to black
+    "flare-slow": { "type": "flash", "colors": ["white", "amber"], "trigger": "cue", "decay": 1.2, "floor": 0.05, "fade": 0 },
+    "flare-fast": { "type": "flash", "colors": ["white", "amber"], "trigger": "cue", "decay": 0.3, "floor": 0.15, "fade": 0 },
+    "blackout-fast": { "type": "blackout", "fade": 0.2 },
+    "blackout-slow": { "type": "blackout", "fade": 2 },
+    // a low underlight
+    "blackout-spotlight": { "type": "solid", "colors": ["#141826"], "pattern": "all", "fade": 0.5 },
+    "big-rock-ending": {
+      "type": "chaos", "colors": [], "trigger": "drums", "density": 0.7, "decay": 0.3, "floor": 0.2, "fade": 0
     }
   },
 
-  // YARG cue -> look; "*" covers the rest. Cues: Intro Verse Chorus CoolLoop WarmLoop CoolManual
-  // WarmManual Dischord Stomp Default Harmony Frenzy Silhouettes SilhouettesSpotlight Searchlights
-  // Sweep BlackoutFast BlackoutSlow BlackoutSpotlight FlareSlow FlareFast BigRockEnding Menu Score NoCue
+  // YARG cue -> look; "*" covers any cue not listed. NoCue = the song has no lighting cues.
   "cues": {
-    "Intro": "pulse-green-purple",
-    "BlackoutFast": "blackout",
-    "BlackoutSlow": "blackout",
-    "BlackoutSpotlight": "blackout",
-    "Stomp": "snare-strobe",
-    "Dischord": "snare-strobe",
-    "Frenzy": "chaos",
-    "Searchlights": "police",
-    "*": "stagekit"
+    "NoCue": "band",
+    "Menu": "menu-wave",
+    "Score": "score-wave",
+    "Intro": "intro",
+    "Verse": "verse",
+    "Chorus": "chorus",
+    "CoolLoop": "cool-loop",
+    "WarmLoop": "warm-loop",
+    "CoolManual": "cool-manual",
+    "WarmManual": "warm-manual",
+    "Default": "default",
+    "Dischord": "dischord",
+    "Stomp": "stomp",
+    "Harmony": "harmony",
+    "Frenzy": "frenzy",
+    "Silhouettes": "silhouettes",
+    "SilhouettesSpotlight": "spotlight",
+    "Searchlights": "searchlights",
+    "Sweep": "sweep",
+    "BlackoutFast": "blackout-fast",
+    "BlackoutSlow": "blackout-slow",
+    "BlackoutSpotlight": "blackout-spotlight",
+    "FlareSlow": "flare-slow",
+    "FlareFast": "flare-fast",
+    "BigRockEnding": "big-rock-ending",
+    "*": "band"
+  },
+
+  // What YARG's screen effects do to the whole rig. A plain colour = a full tint. Otherwise any of:
+  //   tint + strength (0-1), contrast (0-1), lift (toward white, 0-1), mirror, invert (complementary
+  //   colours), posterize (full or off), polarize (each light snaps to the nearest of these colours),
+  //   trails (seconds lights linger), flicker (0-1), choppy (updates per second), scanline (0-1),
+  //   fringe (seconds green / blue lag red)
+  "post_processing": {
+    "Bloom": { "lift": 0.15 },
+    "Bright": { "lift": 0.35 },
+    "Contrast": { "contrast": 0.8 },
+    "Mirror": { "mirror": true, "tint": "amber", "strength": 0.3 },
+    "PhotoNegative": { "invert": true },
+    "Posterize": { "posterize": true },
+
+    "BlackAndWhite": "white",
+    "SepiaTone": "#ff9040",
+    "SilverTone": "#c0d0ff",
+    "ChoppyBlackAndWhite": { "tint": "white", "choppy": 6 },
+    // red or black: a full red tint with contrast, which keeps fades (polarize would snap them)
+    "PhotoNegativeRedAndBlack": { "tint": "red", "contrast": 0.7 },
+    "PolarizedBlackAndWhite": { "polarize": ["white"] },
+    "PolarizedRedAndBlue": { "polarize": ["red", "blue"] },
+    "DesaturatedRed": { "tint": "red", "strength": 0.7 },
+    "DesaturatedBlue": { "tint": "blue", "strength": 0.4 },
+    "ContrastRed": { "contrast": 0.6, "tint": "red", "strength": 0.35 },
+    "ContrastGreen": { "contrast": 0.6, "tint": "green", "strength": 0.35 },
+    "ContrastBlue": { "contrast": 0.6, "tint": "blue", "strength": 0.35 },
+
+    "GrainyFilm": { "flicker": 0.25 },
+    "GrainyChromaticAbberation": { "flicker": 0.4, "lift": 0.3 },
+    "Scanlines": { "scanline": 0.6 },
+    "ScanlinesBlackAndWhite": { "tint": "white", "scanline": 0.6 },
+    "ScanlinesBlue": { "tint": "blue", "scanline": 0.4 },
+    "ScanlinesSecurity": { "tint": "green", "flicker": 0.2, "scanline": 0.4 },
+
+    "Trails": { "trails": 0.25 },
+    "TrailsLong": { "trails": 0.6 },
+    "TrailsDesaturated": { "tint": "white", "trails": 0.6 },
+    "TrailsFlickery": { "trails": 0.35, "flicker": 0.3, "tint": "white", "strength": 0.3 },
+    "TrailsSpacey": { "fringe": 0.08, "lift": 0.25, "trails": 0.2 }
   }
 }

@@ -46,32 +46,92 @@ post-processing 106, guitar 107, bass 108, keys 109, and put the same numbers un
   Listed left to right; "halves" and "alternate" go by this order.
 - `profiles`: channel offsets per fixture type (`dimmer`, `red`, `green`, `blue`, optional `white`,
   and `fixed` channels held at a value). `par7` is the original's 7-channel PAR.
-- `palette`: colour names. `red`/`green`/`blue`/`yellow` are also the Stage Kit lamp colours.
+- `palette`: colour names. `red`/`green`/`blue`/`yellow`/`orange`/`purple` are also the fret and drum
+  colours for `frets`.
 - `looks`: what the lights do while a cue is up.
 - `cues`: YARG cue to look; `"*"` covers every other cue.
-- `strobe_hz`: YARG's strobe cues become a white software strobe over any look (0 to ignore them).
+- `post_processing`: what each YARG screen effect does to the whole rig (below).
+- `strobe_per_beat`: YARG's strobe cues become a white software strobe over any look, locked to the
+  tempo (charts use Slow = 8th notes, 2 per beat, and Fast = 16th notes, 4 per beat; 0 to ignore).
 - `output`: `ftdi` (USB-DMX cable), `sacn_universe` (also send the result as sACN, e.g. to QLC+ or
-  a network DMX node), `fps`, `visualizer_port`.
+  a network DMX node), `fps`, `visualizer_port`, `fog_channel` (a fog machine's DMX channel, 255
+  while YARG's fog is on).
 
 ### Looks
 
 | type | does | uses |
 |---|---|---|
-| `stagekit` | YARG's own Stage Kit pattern, positions folded onto your fixtures (i, i+n...) | palette red/green/blue/yellow |
 | `solid` | colours by pattern | `colors`, `pattern` |
 | `pulse` | colours by pattern, brightness kicked on each trigger, fading to `floor` | `trigger`, `decay`, `floor`, `accent` (downbeat louder), `pattern: chase` steps a light per trigger |
 | `flash` | first colour flashes on each trigger over the second at `floor` | `trigger`, `decay` |
+| `step` | colours by pattern, moving on a step per trigger with a crossfade; on keyframes, next steps on, previous steps back, first goes back to the start | `colors`, `pattern`, `trigger`, `decay` (crossfade seconds), `beat_pulse` (dip between beats, 0-1) |
+| `toggle` | colours by pattern, on when the cue starts, flipped off / on by each trigger | `trigger`, `decay` (crossfade) |
+| `chase` | a soft spot per colour, evenly spaced, travelling round the rig | `beats` (per lap) or `rate_hz`, `width` (share of the rig), `bounce` (back and forth), `reverse` |
+| `layers` | other looks drawn on top of each other | `looks` |
+| `frets` | the rig as one instrument's fretboard, left to right (drums: red yellow blue green, cymbals with their pad; guitar / bass / keys: green to orange). A held note lights its section and fades once let go; an open note (a kick on drums) washes the whole rig | `instrument`, `decay`, `floor` (unplayed sections), palette `orange` / `purple` (kick / open) |
 | `chaos` | a new random draw per trigger: `density` of the lights, random colours (random hues if `colors` is empty) | `trigger`, `density`, `decay`, `floor` |
 | `police` | two sides take turns, `flashes` each, side colours `colors[0]` / `colors[1]` | `pattern` (halves / alternate), `trigger: rate` + `rate_hz`, or any trigger = paced to the beat |
+| `wave` | `colors` (a rainbow if empty) crossfading round in a loop, rolling across the lights left to right | `beats` (per cycle) or `rate_hz` (cycles per second, e.g. 0.04), `spread` (cycles across the rig) |
+| `stagekit` | YARG's own Stage Kit pattern, positions folded onto your fixtures (i, i+n...) | palette red/green/blue/yellow |
 | `blackout` | all off | |
 
-Triggers: `beat`, `downbeat`, `keyframe`, `snare`, `kick`, `cymbal`, `bonus`, `guitar`, `bass`,
-`keys`, or `rate` (a clock at `rate_hz`). Keyframes come from the chart (VENUE notes 48-50), so they
-land exactly where they were charted; the drum triggers come from YARG's drum channel.
+Triggers: `beat`, `downbeat`, `keyframe`, `snare`, `kick`, `tom`, `cymbal`, `drums` (any hit),
+`bonus`, `guitar`, `bass`, `keys`, `cue` (once, as the cue starts), `rate` (a clock at `rate_hz`) or
+`beats` (every `beats` beats, locked to the song: 0.25 = 16th notes). Keyframes come from the chart
+(VENUE notes 48-50), so they land exactly where they were charted; the drum triggers come from YARG's
+drum channel.
 
-The default `rig.json` maps `Intro` to a green/purple pulse, the blackouts to black, `Stomp` /
-`Dischord` to a white flash per keyframe, `Frenzy` to chaos, `Searchlights` to red/blue police
-lights, and everything else to the Stage Kit pattern.
+Every look takes `fade`: seconds to crossfade in from the previous look (default 0.3; flares and
+stomp use 0, blackout_slow 2).
+
+In the default `rig.json`, manual cues, `Verse` and `Chorus` step on keyframes, loops are spots
+rolling round the rig on the beat, `Stomp` is a white hit per keyframe, flares are one white hit,
+blackouts fade, `Searchlights` are two spots crossing. A song with no lighting cues (`NoCue`), and any
+cue left out, gets `band`: the rig plays the drums with the guitar's notes on top.
+
+`post_processing`: what YARG's screen effects do to the whole rig while they're on, keyed by YARG's
+names (below). A plain colour is a full tint (`"BlackAndWhite": "white"`); otherwise an object with
+any of `tint` + `strength`, `contrast`, `lift`, `mirror`, `invert`, `posterize`, `polarize` (a list of
+colours), `trails` (seconds), `flicker`, `choppy` (updates per second), `scanline` and `fringe`
+(seconds). Effects left out change nothing.
+
+### Screen effects
+
+YARG's effects and the value it sends for each. A `.mid` chart still names them with Rock Band's
+text events (YARG translates them), so the last column is what to put on the VENUE track.
+
+| YARG effect (`rig.json` key) | DMX | Chart event |
+|---|---|---|
+| Default | 0 | `[ProFilm_a.pp]` |
+| Bloom | 4 | `[bloom.pp]` |
+| Bright | 14 | `[bright.pp]` |
+| Contrast | 24 | `[film_contrast.pp]` |
+| Mirror | 34 | `[ProFilm_mirror_a.pp]` |
+| PhotoNegative | 44 | `[photo_negative.pp]` |
+| Posterize | 54 | `[posterize.pp]` |
+| BlackAndWhite | 64 | `[film_b+w.pp]` |
+| SepiaTone | 74 | `[film_sepia_ink.pp]` |
+| SilverTone | 84 | `[film_silvertone.pp]` |
+| ChoppyBlackAndWhite | 94 | `[photocopy.pp]` |
+| PhotoNegativeRedAndBlack | 104 | `[horror_movie_special.pp]` |
+| PolarizedBlackAndWhite | 114 | `[contrast_a.pp]` |
+| PolarizedRedAndBlue | 124 | `[ProFilm_psychedelic_blue_red.pp]` |
+| DesaturatedRed | 134 | `[ProFilm_b.pp]` |
+| DesaturatedBlue | 144 | `[desat_blue.pp]` |
+| ContrastRed | 154 | `[film_contrast_red.pp]` |
+| ContrastGreen | 164 | `[film_contrast_green.pp]` |
+| ContrastBlue | 174 | `[film_contrast_blue.pp]` |
+| GrainyFilm | 184 | `[film_16mm.pp]` |
+| GrainyChromaticAbberation | 194 | `[shitty_tv.pp]` |
+| Scanlines | 204 | `[video_a.pp]` |
+| ScanlinesBlackAndWhite | 214 | `[video_bw.pp]` |
+| ScanlinesBlue | 224 | `[film_blue_filter.pp]` |
+| ScanlinesSecurity | 234 | `[video_security.pp]` |
+| Trails | 244 | `[clean_trails.pp]` |
+| TrailsLong | 252 | `[video_trails.pp]` |
+| TrailsDesaturated | 253 | `[desat_posterize_trails.pp]` |
+| TrailsFlickery | 254 | `[flicker_trails.pp]` |
+| TrailsSpacey | 255 | `[space_woosh.pp]` |
 
 ## What YARG sends
 

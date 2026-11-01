@@ -37,6 +37,10 @@ public static class E131
         return true;
     }
 
+    /// <summary>The sender's id (CID) and source name of a packet <see cref="TryParse"/> accepted.</summary>
+    public static (Guid Cid, string Name) Sender(ReadOnlySpan<byte> p) =>
+        (new Guid(p.Slice(22, 16)), Encoding.UTF8.GetString(p.Slice(44, 64)).TrimEnd('\0'));
+
     /// <summary>A data packet carrying <paramref name="slots"/> (up to 512) on <paramref name="universe"/>.</summary>
     public static byte[] Build(ushort universe, ReadOnlySpan<byte> slots, byte sequence, Guid cid, string source,
                                byte priority = 100)
@@ -66,13 +70,63 @@ public static class E131
     }
 }
 
-/// <summary>Receives one universe (multicast as YARG sends it, or unicast) and hands each frame on.</summary>
+/// <summary>Picks one sender per universe. Every sender on it would otherwise be interleaved (YARG and the
+/// simulator, two copies of YARG...), so it follows <see cref="Only"/>, or else the first one it hears,
+/// moving to another only once that one has been quiet for the E1.31 source timeout (2.5 s).</summary>
+public sealed class SourceLock
+{
+    public const long TimeoutMs = 2500;
+
+    readonly object _lock = new();
+    readonly Dictionary<Guid, (string Name, long At)> _others = new();
+    Guid _current;
+    long _currentAt = long.MinValue / 2;
+
+    /// <summary>Follow only this sender (the simulator's id with --sim); null = the first one heard.</summary>
+    public Guid? Only { get; set; }
+    /// <summary>The name of the sender being followed ("" before any).</summary>
+    public string Source { get; private set; } = "";
+
+    /// <summary>Whether a packet from <paramref name="cid"/> at <paramref name="now"/> (ms) is one to use.</summary>
+    public bool Follows(Guid cid, string name, long now)
+    {
+        lock (_lock)
+        {
+            bool take = Only is { } only ? cid == only : cid == _current || now - _currentAt >= TimeoutMs;
+            if (!take)
+            {
+                _others[cid] = (name, now);
+                return false;
+            }
+            if (cid != _current)
+            {
+                _others.Remove(cid);
+                Console.WriteLine($"sACN: following \"{name}\"");
+            }
+            _current = cid;
+            _currentAt = now;
+            Source = name;
+            return true;
+        }
+    }
+
+    /// <summary>The other senders heard in the timeout before <paramref name="now"/>, being ignored.</summary>
+    public IReadOnlyList<string> Ignored(long now)
+    {
+        lock (_lock)
+            return _others.Values.Where(o => now - o.At < TimeoutMs).Select(o => o.Name).Distinct().ToList();
+    }
+}
+
+/// <summary>Receives one universe (multicast as YARG sends it, or unicast) from one sender
+/// (<see cref="Sources"/>) and hands each frame on.</summary>
 public sealed class E131Receiver : IDisposable
 {
     readonly UdpClient _udp;
     readonly ushort _universe;
     readonly CancellationTokenSource _stop = new();
     public long Packets { get; private set; }
+    public SourceLock Sources { get; } = new();
 
     public E131Receiver(ushort universe, Action<byte[]> onFrame)
     {
@@ -101,10 +155,13 @@ public sealed class E131Receiver : IDisposable
         }
     }
 
-    /// <summary>The 512 slots of a data packet for our universe, else null.</summary>
+    /// <summary>The 512 slots of a data packet for our universe from the sender being followed, else null.</summary>
     byte[]? Frame(byte[] packet)
     {
         if (!E131.TryParse(packet, out var u, out var slots) || u != _universe)
+            return null;
+        var (cid, name) = E131.Sender(packet);
+        if (!Sources.Follows(cid, name, Environment.TickCount64))
             return null;
         var frame = new byte[512];
         slots.CopyTo(frame);
@@ -122,10 +179,12 @@ public sealed class E131Receiver : IDisposable
 public sealed class E131Sender : IDisposable
 {
     readonly UdpClient _udp = new();
-    readonly Guid _cid = Guid.NewGuid();
     readonly string _name;
     readonly IPAddress? _target;
     byte _seq;
+
+    /// <summary>The sender id (CID) every packet carries.</summary>
+    public Guid Cid { get; } = Guid.NewGuid();
 
     public E131Sender(string name, IPAddress? target = null)
     {
@@ -136,7 +195,7 @@ public sealed class E131Sender : IDisposable
 
     public void Send(ushort universe, ReadOnlySpan<byte> slots)
     {
-        var p = E131.Build(universe, slots, _seq++, _cid, _name);
+        var p = E131.Build(universe, slots, _seq++, Cid, _name);
         _udp.Send(p, p.Length, new IPEndPoint(_target ?? E131.MulticastGroup(universe), E131.Port));
     }
 

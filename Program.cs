@@ -46,7 +46,11 @@ var show = new Show(rig);
 using var receiver = new E131Receiver(rig.Universe, decoder.OnFrame);
 Console.WriteLine($"listening for YARG on sACN universe {rig.Universe}");
 using var simulator = sim ? new YargSimulator(rig.Channels, rig.Universe) : null;
-if (sim) Console.WriteLine("simulator: sending a demo song as YARG would");
+if (simulator != null)
+{
+    receiver.Sources.Only = simulator.SourceId;      // not YARG too, if it's running
+    Console.WriteLine("simulator: sending a demo song as YARG would");
+}
 
 var outputs = new List<IDmxOutput>();
 void OpenOutputs()
@@ -121,7 +125,7 @@ while (!stop.IsCancellationRequested)
     double now = clock.Elapsed.TotalSeconds;
     var state = decoder.Snapshot();
     var colours = show.Render(state, now);
-    var universe = Universe.Build(rig, colours);
+    var universe = Universe.Build(rig, colours, state.Fog);
     foreach (var o in outputs) o.Send(universe);
 
     if (viz != null)
@@ -129,6 +133,10 @@ while (!stop.IsCancellationRequested)
         var notes = new List<string>();
         if (now - state.LastFrameAt > 3)
             notes.Add(sim ? "no sACN from the simulator" : "no sACN from YARG: Settings > All Settings > Lighting > Enable DMX output (universe " + rig.Universe + ")");
+        var ignored = receiver.Sources.Ignored(Environment.TickCount64);
+        if (ignored.Count > 0)
+            notes.Add("also on universe " + rig.Universe + ", ignored: " + string.Join(", ", ignored.Select(n => $"\"{n}\"")) +
+                      (sim ? " (running with --sim)" : ""));
         if (state.Fog && collisions.Count > 0)
             notes.Add("fog is on and YARG's default channels put fog on top of " + string.Join("; ", collisions) +
                       ": drum / beat triggers are unreliable. Move the game channels in YARG and in rig.json (channels).");
@@ -142,11 +150,14 @@ while (!stop.IsCancellationRequested)
             colours = shown.Select(c => new[] { (int)Math.Round(c.R * 255), (int)Math.Round(c.G * 255), (int)Math.Round(c.B * 255) }),
             dmx = rig.Fixtures.Select(f => $"@{f.Address}: " + string.Join(" ",
                 universe.Skip(f.Address - 1).Take(rig.Profiles[f.Profile].Width))),
-            input = (sim ? "simulator" : "YARG") + $" ({receiver.Packets} packets)",
+            input = now - state.LastFrameAt > 3 ? "waiting" : receiver.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
             cue = state.Cue.ToString(),
             look = show.LookName,
+            effectDoes = rig.PostProcessing.TryGetValue(state.PostProcessing.ToString(), out var fx) ? Describe(fx) : "",
             strobe = state.Strobe.ToString(),
             fog = state.Fog,
+            effect = state.PostProcessing.ToString(),
+            held = state.Held.Select(b => (int)b),
             bpm = now - state.LastAt[(int)Trigger.Beat] < 3 ? 60 / state.BeatPeriod : 0,
             outputs = outputs.Count > 0 ? string.Join(", ", outputs.Select(o => o.Name)) : "visualizer only",
             counts = Enum.GetValues<Trigger>().ToDictionary(t => t.ToString(), t => state.Count(t)),
@@ -161,3 +172,22 @@ while (!stop.IsCancellationRequested)
 foreach (var o in outputs) o.Dispose();
 Console.WriteLine("stopped");
 return 0;
+
+// what a screen effect does to the rig, in a few words for the visualizer
+static string Describe(PostEffect fx)
+{
+    var parts = new List<string>();
+    if (fx.Tint is { Length: > 0 }) parts.Add(fx.Strength >= 1 ? $"tint {fx.Tint}" : $"tint {fx.Tint} {fx.Strength:0%}");
+    if (fx.Mirror) parts.Add("mirror");
+    if (fx.Invert) parts.Add("invert");
+    if (fx.Polarize.Count > 0) parts.Add("polarize " + string.Join("/", fx.Polarize));
+    if (fx.Posterize) parts.Add("posterize");
+    if (fx.Contrast > 0) parts.Add("contrast");
+    if (fx.Lift > 0) parts.Add("lift");
+    if (fx.Scanline > 0) parts.Add("scanline");
+    if (fx.Flicker > 0) parts.Add("flicker");
+    if (fx.Fringe > 0) parts.Add("fringe");
+    if (fx.Trails > 0) parts.Add($"trails {fx.Trails:0.##} s");
+    if (fx.Choppy > 0) parts.Add($"choppy {fx.Choppy:0} fps");
+    return string.Join(" · ", parts);
+}

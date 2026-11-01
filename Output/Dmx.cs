@@ -8,10 +8,13 @@ public static class Universe
     static byte B(double v) => (byte)Math.Round(Math.Clamp(v, 0, 1) * 255);
 
     /// <summary>The 512 DMX slots for these fixture colours. With a dimmer channel the colour goes out at
-    /// full and the dimmer carries the level; with a white channel, white takes the common part.</summary>
-    public static byte[] Build(Rig rig, IReadOnlyList<Rgb> colours)
+    /// full and the dimmer carries the level; with a white channel, white takes the common part. The fog
+    /// channel, if there is one, is 255 while <paramref name="fog"/> is on.</summary>
+    public static byte[] Build(Rig rig, IReadOnlyList<Rgb> colours, bool fog = false)
     {
         var u = new byte[512];
+        if (rig.Output.FogChannel is >= 1 and <= 512)
+            u[rig.Output.FogChannel - 1] = fog ? (byte)255 : (byte)0;
         for (int i = 0; i < rig.Fixtures.Count; i++)
         {
             var f = rig.Fixtures[i];
