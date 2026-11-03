@@ -167,10 +167,10 @@ first cue.
 
 ## Status
 
-- Tested: the sACN receiver, decoder, every look, the visualizer stream and live reload, with the
-  simulator. Tests: `dotnet test tests/Lumenator.Tests`.
-- Not tested: real YARG output, and the FTDI cable output (written from the FTDI D2XX and Open DMX
-  docs; it needs FTDI's driver, which provides `ftd2xx.dll`).
+- Tested: cues arriving from real YARG; the sACN receiver, decoder, every look, the visualizer stream
+  and live reload, with the simulator. Tests: `dotnet test tests/Lumenator.Tests`.
+- Not tested: the FTDI cable output (written from the FTDI D2XX and Open DMX docs; it needs FTDI's
+  driver, which provides `ftd2xx.dll`).
 
 ## Credits
 
