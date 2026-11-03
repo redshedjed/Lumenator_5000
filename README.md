@@ -24,7 +24,7 @@ Needs the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 ```
 dotnet run -- --sim          # demo song, no YARG needed; open http://localhost:8080/
 dotnet run                   # listen for YARG
-dotnet test tests/Interpreter.Tests
+dotnet test tests/Lumenator.Tests
 ```
 
 Options: `--rig path/to/rig.json` (default: `rig.json` in the current folder), `--port 8080`,
@@ -168,7 +168,7 @@ first cue.
 ## Status
 
 - Tested: the sACN receiver, decoder, every look, the visualizer stream and live reload, with the
-  simulator. Tests: `dotnet test tests/Interpreter.Tests`.
+  simulator. Tests: `dotnet test tests/Lumenator.Tests`.
 - Not tested: real YARG output, and the FTDI cable output (written from the FTDI D2XX and Open DMX
   docs; it needs FTDI's driver, which provides `ftd2xx.dll`).
 

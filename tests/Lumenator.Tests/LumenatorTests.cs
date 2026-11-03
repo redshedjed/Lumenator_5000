@@ -4,7 +4,7 @@ using YargDmx.Engine;
 using YargDmx.Input;
 using YargDmx.Output;
 
-namespace Interpreter.Tests;
+namespace Lumenator.Tests;
 
 public class E131Tests
 {

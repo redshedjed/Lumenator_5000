@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lumenator", "Lumenator.cspr
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{5C545E60-98F7-43AD-A7A5-B463E1B4CA93}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Interpreter.Tests", "tests\Interpreter.Tests\Interpreter.Tests.csproj", "{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lumenator.Tests", "tests\Lumenator.Tests\Lumenator.Tests.csproj", "{9EB98C1B-3ED5-4209-9CDA-BA49517112F5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
