@@ -17,26 +17,29 @@
     "visualizer_port": 8080,
     "fog_channel": 0        // e.g. 100: a fog machine's channel, 255 while YARG's fog is on
   },
-  "master": 1.0,
+  "master": 0.94,
   // software strobe over everything while YARG's strobe is on, in flashes per beat (0 = ignore it).
   // Charts use Slow (8th notes) and Fast (16th notes).
   "strobe_per_beat": { "Slow": 2, "Medium": 3, "Fast": 4, "Fastest": 6 },
 
   // offsets from the fixture's address. par7 = the 7-channel PARs the original bridge used
   // (1 dimmer, 2-4 RGB, 5 RGB macro, 6 strobe, 7 mode: 5-7 held at 0, the strobe is done in software)
+  // derby8 = the LaluceNatz 27W derby (48 lenses), in its 8-channel DMX mode: 1 dimmer, 2 red+orange,
+  // 3 green+purple, 4 blue+white, 5 green+yellow (copies green), 6 strobe (0 = off, done in software),
+  // 7 rotation speed (slow to fast; raise or lower to taste), 8 sound mode (0 = off)
   "profiles": {
-    "par7": { "dimmer": 1, "red": 2, "green": 3, "blue": 4, "fixed": { "5": 0, "6": 0, "7": 0 } }
+    "par7": { "dimmer": 1, "red": 2, "green": 3, "blue": 4, "fixed": { "5": 0, "6": 0, "7": 0 } },
+    "derby8": { "dimmer": 1, "red": 2, "green": 3, "blue": 4, "copy": { "5": "green" }, "fixed": { "6": 0, "7": 40, "8": 0 } }
   },
   // left to right; x/y place them on the visualizer (0-1) and default to an even row
   "fixtures": [
-    { "name": "PAR 1", "address": 1,  "profile": "par7" },
-    { "name": "PAR 2", "address": 8,  "profile": "par7" },
-    { "name": "PAR 3", "address": 15, "profile": "par7" },
-    { "name": "PAR 4", "address": 22, "profile": "par7" },
-    { "name": "PAR 5", "address": 29, "profile": "par7" },
-    { "name": "PAR 6", "address": 36, "profile": "par7" },
-    { "name": "PAR 7", "address": 43, "profile": "par7" },
-    { "name": "PAR 8", "address": 50, "profile": "par7" }
+    { "name": "PAR 1", "address": 1, "profile": "par7", "x": 0.156, "y": 0.03, "level": 0.65 },
+    { "name": "PAR 4", "address": 22, "profile": "par7", "x": 0.291, "y": 0.458, "level": 0.81 },
+    { "name": "Light 7", "address": 72, "profile": "par7", "x": 0.399, "y": 0.948 },
+    { "name": "Derby", "address": 57, "profile": "derby8", "x": 0.496, "y": 0.146 },
+    { "name": "Light 6", "address": 65, "profile": "par7", "x": 0.597, "y": 0.965 },
+    { "name": "PAR 5", "address": 29, "profile": "par7", "x": 0.71, "y": 0.485, "level": 0.86 },
+    { "name": "PAR 8", "address": 50, "profile": "par7", "x": 0.845, "y": 0, "level": 0.66 }
   ],
 
   // red/green/blue/yellow/orange/purple are also the fret and drum colours for the "frets" look

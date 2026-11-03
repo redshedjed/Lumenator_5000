@@ -10,7 +10,11 @@
   body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 18px; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid var(--line); }
   header b { font-size: 15px; }
-  .kv { color: var(--dim); } .kv span { color: var(--text); font-weight: 600; margin-left: 4px; }
+  .kv { color: var(--dim); white-space: nowrap; }
+  .kv span { color: var(--text); font-weight: 600; margin-left: 4px; display: inline-block; vertical-align: bottom;
+             overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  /* fixed widths so the header doesn't shift as values change */
+  #src { width: 150px; } #strobe { width: 62px; } #fog { width: 28px; } #bpm { width: 64px; } #outs { width: 150px; }
   #stage { position: relative; height: 56vh; min-height: 280px; overflow: hidden; background: #040507; }
   #wall { position: absolute; inset: 0; }
   .fx { position: absolute; transform: translate(-50%, -50%); text-align: center; }
@@ -20,17 +24,68 @@
   main { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 12px 16px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
   h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
-  .trig { display: inline-flex; align-items: center; gap: 6px; margin: 0 14px 6px 0; }
-  .dot { width: 12px; height: 12px; border-radius: 50%; background: #262933; transition: background .12s; }
-  .dot.hot { background: var(--on); transition: none; box-shadow: 0 0 8px var(--on); }
-  #kit { display: grid; grid-template-columns: 50px repeat(8, 18px); gap: 4px; align-items: center; }
-  #kit .led { width: 14px; height: 14px; border-radius: 50%; background: #1d2028; }
-  .warn { color: #ffb15c; }
-  #now { display: flex; flex-wrap: wrap; gap: 10px 36px; padding: 12px 16px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  /* three fixed columns: a long cue or effect name is cut short instead of pushing the others */
+  #now { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 28px; padding: 12px 16px 14px;
+         border-bottom: 1px solid var(--line); background: var(--panel); }
   #now .slot { min-width: 0; }
   #now .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
-  #now .big { font-size: 26px; font-weight: 700; line-height: 1.15; }
-  #now .small { color: var(--dim); font-size: 12px; min-height: 1.4em; }
+  #now .big, #now .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #now .big { font-size: 26px; font-weight: 700; line-height: 1.15; height: 1.15em; }
+  #now .small { color: var(--dim); font-size: 12px; height: 1.4em; font-variant-numeric: tabular-nums; }
+  @media (max-width: 640px) { #now { grid-template-columns: 1fr; } }
+  /* light editor */
+  .fx { cursor: grab; touch-action: none; user-select: none; }
+  .fx.dragging { cursor: grabbing; }
+  .fx.sel .lens { border-color: var(--on); }
+  .fx.sel .name { color: var(--text); }
+  #lights { grid-column: 1 / -1; }
+  #lights .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+  #lights .bar h2 { margin: 0; flex: 1; }
+  #status { color: var(--dim); text-align: right; }
+  #status.err { color: #ff7a6b; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 860px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; }
+  td { padding: 3px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+  tr.sel td { background: #181b24; }
+  td.ch { font-variant-numeric: tabular-nums; color: var(--dim); white-space: nowrap; }
+  .addrcell { white-space: nowrap; }
+  .addrcell .range { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; margin-left: 6px; display: inline-block; min-width: 5.5em; }
+  .warn { color: #ffb15c; cursor: help; }
+  button.x { width: 28px; padding: 3px 0; color: var(--dim); background: transparent; border-color: transparent; }
+  button.x[data-confirm=yes] { width: auto; padding: 3px 8px; color: #ff8a7a; border-color: #7a2c2c; }
+  td.end { text-align: right; width: 1%; white-space: nowrap; }
+  /* "All lights": a shaded band that reads as controlling everything below it */
+  tr.all td { border-top: 0; background: #181b25; padding-top: 7px; padding-bottom: 7px; }
+  tr.all td:first-child { border-radius: 6px 0 0 6px; } tr.all td:last-child { border-radius: 0 6px 6px 0; }
+  tr.all td:nth-child(2) { color: var(--text); font-weight: 600; }
+  tfoot td { border-top: 1px solid var(--line); padding-top: 8px; }
+  input, select, button { font: inherit; color: var(--text); background: #0b0d12; border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
+  input.name { width: 140px; } input.addr { width: 70px; }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--on); outline-offset: 1px; }
+  button { cursor: pointer; background: #1a1d26; }
+  button:hover { border-color: #3a3f4c; }
+  button.primary { background: #2a2410; border-color: #5a4a14; color: var(--on); }
+  button.danger:hover { border-color: #7a2c2c; color: #ff8a7a; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 6px; }
+  /* dimming */
+  .dim { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .dim input[type=range] { width: 120px; padding: 0; accent-color: var(--on); }
+  .dim .pct { width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+  .seg button { border-radius: 0; } .seg button:first-child { border-radius: 5px 0 0 5px; } .seg button:last-child { border-radius: 0 5px 5px 0; margin-left: -1px; }
+  .seg button[aria-pressed=true] { background: var(--on); border-color: var(--on); color: #000; font-weight: 600; }
+  .rgbw { display: inline-flex; gap: 3px; }
+  .rgbw button { width: 28px; padding: 3px 0; font-weight: 600; }
+  .rgbw button[aria-pressed=true] { color: #000; border-color: transparent; }
+  .rgbw button[data-bit="1"][aria-pressed=true] { background: #ff4040; }
+  .rgbw button[data-bit="2"][aria-pressed=true] { background: #40e060; }
+  .rgbw button[data-bit="4"][aria-pressed=true] { background: #4080ff; }
+  .rgbw button[data-bit="7"][aria-pressed=true] { background: #f2f2f2; }
+  /* the manual column keeps its space in YARG mode, so the table doesn't shift when it appears */
+  .mcol { width: 200px; white-space: nowrap; }
+  #lights:not(.manual) .manual-only { opacity: .3; pointer-events: none; }
+  button[data-act=identify] { min-width: 76px; font-variant-numeric: tabular-nums; }
+  button[data-act=identify][aria-pressed=true] { background: var(--on); border-color: var(--on); color: #000; font-weight: 600; }
   #now .big.flash { color: var(--on); }
   #now .big.off { color: var(--dim); font-weight: 600; }
 </style>
@@ -51,41 +106,261 @@
 </div>
 <div id="stage"><canvas id="wall"></canvas></div>
 <main>
-  <section><h2>Triggers from YARG</h2><div id="trigs"></div></section>
-  <section><h2>Notes held</h2><div id="held"></div></section>
-  <section><h2>YARG Stage Kit lights (input)</h2><div id="kit"></div></section>
-  <section><h2>Notes</h2><div id="notes" class="kv">waiting for the interpreter...</div></section>
+  <section id="lights">
+    <div class="bar"><h2>Lights</h2><span id="status"></span>
+      <span class="ch" id="controlLabel">Control:</span>
+      <span class="seg" role="group" aria-labelledby="controlLabel"><button id="modeYarg" aria-pressed="true">YARG</button><button id="modeManual" aria-pressed="false">Manual</button></span>
+    </div>
+    <div class="tablewrap"><table>
+      <thead>
+        <tr><th>#</th><th>Name</th><th>Address</th><th>Type</th><th>Brightness</th><th></th><th class="mcol">Manual</th><th></th></tr>
+        <tr class="all">
+          <td></td><td>All lights</td><td></td><td></td>
+          <td><span class="dim"><input type="range" id="master" min="0" max="100" step="1" value="100" aria-label="Master brightness"><span class="pct" id="masterPct">100%</span></span></td>
+          <td></td>
+          <td class="mcol"><span class="manual-only"><span class="rgbw" id="allBits"></span> <button data-all="off">All off</button></span></td>
+          <td></td>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+      <tfoot><tr><td></td><td colspan="7"><button class="primary" id="add">+ Add light</button></td></tr></tfoot>
+    </table></div>
+  </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
 const stage = $('stage'), wall = $('wall'), ctx = wall.getContext('2d');
-const TRIGS = ['Beat', 'Downbeat', 'Keyframe', 'Snare', 'Kick', 'Tom', 'Cymbal', 'Drums', 'Bonus', 'Guitar', 'Bass', 'Keys', 'Cue'];
 let cueSince = 0, lastCue = '';
-const KIT = [['red', '#ff3030'], ['green', '#30ff60'], ['blue', '#3080ff'], ['yellow', '#ffb000']];
-// each instrument's note bits, low to high, as [label, colour]
-const FRET = [['open', '#8040ff'], ['G', '#30ff60'], ['R', '#ff3030'], ['Y', '#ffd000'], ['B', '#3080ff'], ['O', '#ff7000']];
-const HELD = [['guitar', FRET], ['bass', FRET], ['keys', FRET],
-  ['drums', [['kick', '#ff7000'], ['R', '#ff3030'], ['Y', '#ffd000'], ['B', '#3080ff'], ['G', '#30ff60'],
-             ['Ycym', '#ffd000'], ['Bcym', '#3080ff'], ['Gcym', '#30ff60']]]];
-let fixtures = [], lastCounts = {}, hotUntil = {};
+let fixtures = [];
 
-$('trigs').innerHTML = TRIGS.map(t => `<span class="trig"><span class="dot" id="t-${t}"></span>${t}</span>`).join('');
-$('held').innerHTML = HELD.map(([name, bits], i) => `<div><span class="kv" style="display:inline-block;width:50px">${name}</span>` +
-  bits.map(([label], b) => `<span class="trig"><span class="dot" id="h-${i}-${b}"></span>${label}</span>`).join('') + '</div>').join('');
-$('kit').innerHTML = KIT.map(([name]) =>
-  `<span class="kv">${name}</span>` + [...Array(8)].map((_, i) => `<span class="led" id="k-${name}-${i}"></span>`).join('')).join('');
+// Identify: the light flashes white for 3 s while its button counts down; clicking again stops it
+const IDENTIFY_MS = 3000;
+let identifying = null;   // { i, until }
+const identifyButton = i => {
+  const on = identifying?.i === i;
+  const left = on ? Math.max(1, Math.ceil((identifying.until - performance.now()) / 1000)) : 0;
+  return `<button data-act="identify" data-row="${i}" aria-pressed="${on}">${on ? `${left} s` : 'Identify'}</button>`;
+};
+function refreshIdentify() {
+  if (identifying && performance.now() >= identifying.until) identifying = null;
+  $('rows').querySelectorAll('[data-act=identify]').forEach(b => {     // in place, so focus stays put
+    const t = document.createElement('template');
+    t.innerHTML = identifyButton(+b.dataset.row);
+    b.textContent = t.content.firstChild.textContent;
+    b.setAttribute('aria-pressed', t.content.firstChild.getAttribute('aria-pressed'));
+  });
+}
+setInterval(() => { if (identifying || $('rows').querySelector('[data-act=identify][aria-pressed=true]')) refreshIdentify(); }, 200);
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+let profiles = {}, selected = -1, dragging = null, pendingLayout = null;
 
 function layout(list) {
   stage.querySelectorAll('.fx').forEach(e => e.remove());
-  fixtures = list.map(f => {
+  fixtures = list.map((f, i) => {
     const el = document.createElement('div');
-    el.className = 'fx';
+    el.className = 'fx' + (i === selected ? ' sel' : '');
     el.style.left = (f.x * 100) + '%';
     el.style.top = (15 + f.y * 25) + '%';
-    el.innerHTML = `<div class="lens"></div><div class="name">${f.name}</div><div class="dmx"></div>`;
+    el.innerHTML = `<div class="lens"></div><div class="name">${esc(f.name)}</div><div class="dmx">DMX ${f.address}</div>`;
+    el.addEventListener('pointerdown', e => startDrag(e, i));
     stage.appendChild(el);
-    return { ...f, el, lens: el.querySelector('.lens'), dmx: el.querySelector('.dmx') };
+    return { ...f, el, lens: el.querySelector('.lens') };
   });
+  rows();
+}
+
+// --- light editor: the table, dragging, saving
+const width = f => profiles[f.profile] || 1;
+const lastCh = f => f.address + width(f) - 1;
+
+function problems(i) {
+  const f = fixtures[i], out = [];
+  if (!(f.address >= 1)) out.push('address must be 1 or more');
+  if (lastCh(f) > 512) out.push(`runs past channel 512`);
+  fixtures.forEach((g, j) => {
+    if (j !== i && f.address <= lastCh(g) && g.address <= lastCh(f)) out.push(`overlaps ${g.name} (${g.address}–${lastCh(g)})`);
+  });
+  return out.join('; ');
+}
+
+// a ⚠ beside the address when something's wrong (overlap, past 512); the reason on hover and for screen readers
+function warning(i) {
+  const p = problems(i);
+  return p ? ` <span class="warn" title="${esc(p)}" role="img" aria-label="Problem: ${esc(p)}">⚠</span>` : '';
+}
+
+function rows() {
+  const focus = document.activeElement?.dataset?.field ? [document.activeElement.dataset.row, document.activeElement.dataset.field] : null;
+  const types = Object.keys(profiles);
+  $('rows').innerHTML = fixtures.map((f, i) => `<tr class="${i === selected ? 'sel' : ''}" data-row="${i}">
+    <td class="ch">${i + 1}</td>
+    <td><input class="name" data-row="${i}" data-field="name" value="${esc(f.name)}" aria-label="Name of light ${i + 1}"></td>
+    <td class="addrcell"><input class="addr" type="number" min="1" max="512" data-row="${i}" data-field="address" value="${f.address}" aria-label="DMX address of light ${i + 1}">
+      <span class="range">${f.address}–${lastCh(f)}</span>${warning(i)}</td>
+    <td><select data-row="${i}" data-field="profile" aria-label="Type of light ${i + 1}">${types.map(t => `<option${t === f.profile ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></td>
+    <td><span class="dim"><input type="range" min="0" max="100" step="1" data-row="${i}" data-field="level" value="${Math.round(f.level * 100)}" aria-label="Brightness of light ${i + 1}"><span class="pct">${Math.round(f.level * 100)}%</span></span></td>
+    <td>${identifyButton(i)}</td>
+    <td class="mcol"><span class="manual-only"><span class="rgbw" data-row="${i}">${bitButtons(manual?.[i] ?? 0, `light ${i + 1}`)}</span></span></td>
+    <td class="end"><button class="danger x" data-act="delete" data-row="${i}" aria-label="Delete ${esc(f.name)}" title="Delete">✕</button></td>
+  </tr>`).join('');
+  if (focus) $('rows').querySelector(`[data-row="${focus[0]}"][data-field="${focus[1]}"]`)?.focus();
+}
+
+function select(i) {
+  selected = i;
+  fixtures.forEach((f, j) => f.el.classList.toggle('sel', j === i));
+  $('rows').querySelectorAll('tr').forEach(tr => tr.classList.toggle('sel', +tr.dataset.row === i));
+}
+
+// only problems are shown (a save that didn't happen); everything else clears the line
+function status(text, err) { $('status').textContent = err ? text : ''; $('status').classList.toggle('err', !!err); }
+
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json().catch(() => ({ ok: false, error: `${r.status}` }));
+}
+
+async function save(list) {
+  status('Saving…');
+  const res = await post('/api/fixtures', list.map(({ name, address, profile, x, y, level }) => ({ name, address, profile, x, y, level })));
+  status(res.ok ? 'Saved to rig.json' : `Not saved: ${res.error}`, !res.ok);
+}
+
+// sliders save as they move: one request at a time, always the latest value
+function sender(fn) {
+  let busy = false, next = null;
+  const go = async v => {
+    busy = true;
+    try { await fn(v); } finally { busy = false; }
+    if (next !== null) { const n = next; next = null; go(n); }
+  };
+  return v => busy ? (next = v) : go(v);
+}
+let touchedAt = -Infinity;   // while a control is being used, don't overwrite it from the stream
+const saveLevels = sender(() => save(fixtures.map(f => ({ ...f }))));
+const saveMaster = sender(async v => {
+  const res = await post('/api/master', { value: v });
+  status(res.ok ? 'Saved to rig.json' : `Not saved: ${res.error}`, !res.ok);
+});
+
+$('rows').addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.field !== 'level') return;
+  touchedAt = performance.now();
+  fixtures[+t.dataset.row].level = t.value / 100;
+  t.nextElementSibling.textContent = t.value + '%';
+  saveLevels(true);
+});
+$('master').addEventListener('input', e => {
+  touchedAt = performance.now();
+  $('masterPct').textContent = e.target.value + '%';
+  saveMaster(e.target.value / 100);
+});
+// manual mode: null = YARG drives the lights, else each light's colour bits (red 1, green 2, blue 4)
+let manual = null;
+const BITS = [['R', 1], ['G', 2], ['B', 4], ['W', 7]];
+const bitButtons = (bits, who) => BITS.map(([label, b]) =>
+  `<button data-bit="${b}" aria-pressed="${b === 7 ? bits === 7 : !!(bits & b)}" aria-label="${label === 'W' ? 'White' : label} on ${who}">${label}</button>`).join('');
+const sendManual = sender(async lights => { await post('/api/manual', { lights }); });
+function showManual() {
+  $('lights').classList.toggle('manual', !!manual);
+  $('modeYarg').setAttribute('aria-pressed', !manual);
+  $('modeManual').setAttribute('aria-pressed', !!manual);
+  // greyed out (not hidden) under YARG, all unlit
+  $('rows').querySelectorAll('.rgbw').forEach(el => el.innerHTML = bitButtons(manual?.[+el.dataset.row] ?? 0, `light ${+el.dataset.row + 1}`));
+  // a colour is lit for "all lights" when every light has it
+  const all = BITS.map(([, b]) => !!manual && manual.length > 0 && manual.every(m => (m & b) === b));
+  $('allBits').innerHTML = bitButtons(0, 'all lights');
+  $('allBits').querySelectorAll('button').forEach((el, k) => el.setAttribute('aria-pressed', all[k]));
+}
+function setManual(next, note) {
+  manual = next;
+  touchedAt = performance.now();
+  showManual();
+  sendManual(manual);
+  if (note) status(note);
+}
+// a bit toggles on (W: all three) unless it's already fully on, then off
+const flip = (m, b) => (m & b) === b ? m & ~b : m | b;
+$('modeYarg').addEventListener('click', () => setManual(null, 'YARG is driving the lights'));
+$('modeManual').addEventListener('click', () => { if (!manual) setManual(fixtures.map(() => 0), 'Manual: every light starts off'); });
+$('lights').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || !manual) return;
+  if (b.dataset.all === 'off') return setManual(manual.map(() => 0));
+  if (!b.dataset.bit) return;
+  const bit = +b.dataset.bit, row = b.closest('.rgbw')?.dataset.row;
+  if (row !== undefined) setManual(manual.map((m, i) => i === +row ? flip(m, bit) : m));
+  else {
+    const allOn = manual.every(m => (m & bit) === bit);
+    setManual(manual.map(m => allOn ? m & ~bit : m | bit));
+  }
+});
+
+$('rows').addEventListener('change', e => {
+  const t = e.target, i = +t.dataset.row, field = t.dataset.field;
+  if (!field || field === 'level') return;
+  const list = fixtures.map(f => ({ ...f }));
+  list[i][field] = field === 'address' ? parseInt(t.value, 10) : t.value;
+  save(list);
+});
+$('rows').addEventListener('click', e => {
+  const b = e.target.closest('button'), tr = e.target.closest('tr');
+  if (tr) select(+tr.dataset.row);
+  if (!b) return;
+  const i = +b.dataset.row;
+  if (b.dataset.act === 'identify') {
+    const stop = identifying?.i === i;
+    identifying = stop ? null : { i, until: performance.now() + IDENTIFY_MS };
+    post('/api/identify', { index: stop ? -1 : i });
+    refreshIdentify();
+  }
+  if (b.dataset.act === 'delete') {
+    if (b.dataset.confirm !== 'yes') { b.dataset.confirm = 'yes'; b.textContent = 'Delete?'; return; }
+    selected = -1;
+    save(fixtures.filter((_, j) => j !== i));
+  }
+});
+
+$('add').addEventListener('click', () => {
+  const types = Object.keys(profiles);
+  const profile = fixtures.length ? fixtures[fixtures.length - 1].profile : types[0];
+  const address = fixtures.reduce((m, f) => Math.max(m, lastCh(f)), 0) + 1;
+  // the middle of the widest gap along the row
+  const xs = [0.02, ...fixtures.map(f => f.x).sort((a, b) => a - b), 0.98];
+  let best = 0;
+  for (let k = 1; k < xs.length; k++) if (xs[k] - xs[k - 1] > xs[best + 1] - xs[best]) best = k - 1;
+  const x = (xs[best] + xs[best + 1]) / 2;
+  let n = fixtures.length + 1;
+  while (fixtures.some(f => f.name === `Light ${n}`)) n++;
+  save([...fixtures.map(f => ({ ...f })), { name: `Light ${n}`, address, profile, x, y: 0.5 }]);
+});
+
+function startDrag(e, i) {
+  const f = fixtures[i], rect = stage.getBoundingClientRect();
+  dragging = { i, x0: e.clientX, y0: e.clientY, moved: false };
+  f.el.setPointerCapture(e.pointerId);
+  f.el.classList.add('dragging');
+  const move = ev => {
+    if (Math.abs(ev.clientX - dragging.x0) + Math.abs(ev.clientY - dragging.y0) > 3) dragging.moved = true;
+    if (!dragging.moved) return;
+    f.x = Math.min(0.98, Math.max(0.02, (ev.clientX - rect.left) / rect.width));
+    f.y = Math.min(1, Math.max(0, ((ev.clientY - rect.top) / rect.height * 100 - 15) / 25));
+    f.el.style.left = (f.x * 100) + '%';
+    f.el.style.top = (15 + f.y * 25) + '%';
+  };
+  const up = () => {
+    f.el.removeEventListener('pointermove', move);
+    f.el.classList.remove('dragging');
+    const moved = dragging.moved;
+    dragging = null;
+    if (moved) save(fixtures.map(g => ({ ...g })));
+    else select(i);
+    if (pendingLayout) { const p = pendingLayout; pendingLayout = null; layout.key = p.key; layout(p.list); }
+  };
+  f.el.addEventListener('pointermove', move);
+  f.el.addEventListener('pointerup', up, { once: true });
 }
 
 function draw(colours) {
@@ -115,13 +390,31 @@ function draw(colours) {
   });
 }
 
+showManual();
 const es = new EventSource('/events');
 es.onmessage = ev => {
   const d = JSON.parse(ev.data);
   if (!d.fixtures) return;
-  if (d.layout !== layout.key) { layout.key = d.layout; layout(d.fixtures); }
+  if (d.profiles) profiles = d.profiles;
+  if (d.layout !== layout.key) {
+    if (dragging) pendingLayout = { key: d.layout, list: d.fixtures };   // don't yank a light out from under the pointer
+    else { layout.key = d.layout; layout(d.fixtures); }
+  }
   draw(d.colours);
-  d.dmx.forEach((v, i) => fixtures[i] && (fixtures[i].dmx.textContent = v));
+  if (performance.now() - touchedAt > 1500) {          // levels changed elsewhere (rig.json, another tab)
+    d.fixtures.forEach((g, i) => {
+      const f = fixtures[i], el = $('rows').querySelector(`[data-row="${i}"][data-field="level"]`);
+      if (!f || f.level === g.level) return;
+      f.level = g.level;
+      if (el) { el.value = Math.round(g.level * 100); el.nextElementSibling.textContent = el.value + '%'; }
+    });
+    const m = Math.round(d.master * 100);
+    if (+$('master').value !== m) { $('master').value = m; $('masterPct').textContent = m + '%'; }
+  }
+  if (performance.now() - touchedAt > 1500 && JSON.stringify(d.manual) !== JSON.stringify(manual)) {
+    manual = d.manual;                                // changed in another tab, or the bridge restarted
+    showManual();
+  }
   $('src').textContent = d.input; $('look').textContent = d.look;
   if (d.cue !== lastCue) { lastCue = d.cue; cueSince = performance.now(); $('cue').textContent = d.cue; }
   const held = (performance.now() - cueSince) / 1000;
@@ -131,19 +424,7 @@ es.onmessage = ev => {
   $('effect').classList.toggle('off', d.effect === 'Default');
   $('effectDoes').textContent = d.effect === 'Default' ? 'none' : (d.effectDoes || 'screen only: lights unchanged');
   $('strobe').textContent = d.strobe; $('fog').textContent = d.fog ? 'on' : 'off';
-  HELD.forEach(([, bits], i) => bits.forEach(([, col], b) => {
-    const on = (d.held[i] >> b) & 1;
-    $(`h-${i}-${b}`).style.background = on ? col : '';
-  }));
   $('bpm').textContent = d.bpm ? Math.round(d.bpm) + ' bpm' : '-'; $('outs').textContent = d.outputs;
-  const now = performance.now();
-  TRIGS.forEach(t => {
-    if (lastCounts[t] !== undefined && d.counts[t] !== lastCounts[t]) hotUntil[t] = now + 90;
-    lastCounts[t] = d.counts[t];
-    $('t-' + t).classList.toggle('hot', (hotUntil[t] || 0) > now);
-  });
-  KIT.forEach(([name, col], c) => d.kit[c].forEach((on, i) => $(`k-${name}-${i}`).style.background = on ? col : ''));
-  $('notes').innerHTML = d.notes.length ? d.notes.map(n => `<div class="warn">${n}</div>`).join('') : 'ok';
 };
 es.onerror = () => { $('src').textContent = 'disconnected'; };
 </script>

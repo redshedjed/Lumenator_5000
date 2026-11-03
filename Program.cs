@@ -79,6 +79,62 @@ OpenOutputs();
 using var viz = visualizer ? new VisualizerServer(port ?? rig.Output.VisualizerPort) : null;
 if (viz != null) Console.WriteLine($"visualizer: {viz.Url}");
 
+// the visualizer's light editor: it saves the fixture list into rig.json (picked up by the reload below)
+// and can flash one light to find it
+var rigWrite = new object();
+(int Index, double Until) identify = (-1, 0);
+if (viz != null)
+{
+    viz.OnFixtures = body =>
+    {
+        var list = System.Text.Json.JsonSerializer.Deserialize<List<Fixture>>(body,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+        if (list.Any(f => string.IsNullOrWhiteSpace(f.Name)))
+            return "every light needs a name";
+        lock (rigWrite)
+        {
+            try
+            {
+                var text = RigFile.ReplaceFixtures(File.ReadAllText(rigPath), list);
+                Rig.Parse(text);                          // only write a rig that loads
+                File.WriteAllText(rigPath, text);
+                // brightness takes effect now, not when the reload settles (a slider saves as it moves)
+                var current = rig;
+                if (current.Fixtures.Count == list.Count)
+                    for (int i = 0; i < list.Count; i++)
+                        if (current.Fixtures[i].Name == list[i].Name)
+                            current.Fixtures[i].Level = list[i].Level;
+                return null;
+            }
+            catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or FormatException)
+            {
+                return e.Message;
+            }
+        }
+    };
+    viz.OnIdentify = i => identify = (i, clock.Elapsed.TotalSeconds + 3);    // -1 stops it
+    viz.OnMaster = value =>
+    {
+        value = Math.Clamp(value, 0, 1);
+        lock (rigWrite)
+        {
+            try
+            {
+                var text = RigFile.SetNumber(File.ReadAllText(rigPath), "master", value);
+                Rig.Parse(text);
+                File.WriteAllText(rigPath, text);
+                rig.Master = value;
+                return null;
+            }
+            catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or FormatException)
+            {
+                return e.Message;
+            }
+        }
+    };
+    viz.OnManual = bits => show.Manual = bits;
+}
+
 // tuning: save rig.json and it's picked up (a broken file keeps the last good rig)
 var reload = new FileSystemWatcher(Path.GetDirectoryName(rigPath)!, Path.GetFileName(rigPath))
 {
@@ -95,8 +151,6 @@ var stop = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
 Console.WriteLine("Ctrl+C to stop");
 
-var collisions = rig.Channels.Collisions(ChannelMap.YargFog, ChannelMap.YargStrobe).ToList();
-string layoutKey = "";
 int frameMs = 1000 / Math.Clamp(rig.Output.Fps, 10, 60);
 while (!stop.IsCancellationRequested)
 {
@@ -111,7 +165,6 @@ while (!stop.IsCancellationRequested)
             rig = next;
             show.Rig = rig;
             decoder.Map = rig.Channels;
-            collisions = rig.Channels.Collisions(ChannelMap.YargFog, ChannelMap.YargStrobe).ToList();
             frameMs = 1000 / Math.Clamp(rig.Output.Fps, 10, 60);
             if (outputsChanged) OpenOutputs();
             Console.WriteLine($"rig reloaded ({rig.Fixtures.Count} fixtures, {rig.Looks.Count} looks)");
@@ -125,44 +178,34 @@ while (!stop.IsCancellationRequested)
     double now = clock.Elapsed.TotalSeconds;
     var state = decoder.Snapshot();
     var colours = show.Render(state, now);
+    bool quiet = now - state.LastFrameAt > 3;
+    if (quiet && show.Manual == null)
+        Array.Fill(colours, Rgb.Black);           // YARG isn't sending: dark, not a frozen look
+    if (identify is var (who, until) && now < until && who >= 0 && who < colours.Length)
+        colours[who] = Rgb.White;
     var universe = Universe.Build(rig, colours, state.Fog);
     foreach (var o in outputs) o.Send(universe);
 
     if (viz != null)
     {
-        var notes = new List<string>();
-        if (now - state.LastFrameAt > 3)
-            notes.Add(sim ? "no sACN from the simulator" : "no sACN from YARG: Settings > All Settings > Lighting > Enable DMX output (universe " + rig.Universe + ")");
-        var ignored = receiver.Sources.Ignored(Environment.TickCount64);
-        if (ignored.Count > 0)
-            notes.Add("also on universe " + rig.Universe + ", ignored: " + string.Join(", ", ignored.Select(n => $"\"{n}\"")) +
-                      (sim ? " (running with --sim)" : ""));
-        if (state.Fog && collisions.Count > 0)
-            notes.Add("fog is on and YARG's default channels put fog on top of " + string.Join("; ", collisions) +
-                      ": drum / beat triggers are unreliable. Move the game channels in YARG and in rig.json (channels).");
-        var key = string.Join("|", rig.Fixtures.Select(f => $"{f.Name}@{f.X},{f.Y}"));
-        layoutKey = key;
         var shown = Universe.Read(rig, universe);
         viz.Publish(new
         {
-            layout = layoutKey,
-            fixtures = rig.Fixtures.Select(f => new { name = f.Name, x = f.X, y = f.Y }),
+            layout = string.Join("|", rig.Fixtures.Select(f => $"{f.Name}@{f.X},{f.Y}#{f.Address}/{f.Profile}")),
+            fixtures = rig.Fixtures.Select(f => new { name = f.Name, x = f.X, y = f.Y, address = f.Address, profile = f.Profile, level = f.Level }),
+            master = rig.Master,
+            manual = show.Manual,
+            profiles = rig.Profiles.ToDictionary(p => p.Key, p => p.Value.Width),
             colours = shown.Select(c => new[] { (int)Math.Round(c.R * 255), (int)Math.Round(c.G * 255), (int)Math.Round(c.B * 255) }),
-            dmx = rig.Fixtures.Select(f => $"@{f.Address}: " + string.Join(" ",
-                universe.Skip(f.Address - 1).Take(rig.Profiles[f.Profile].Width))),
-            input = now - state.LastFrameAt > 3 ? "waiting" : receiver.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
+            input = quiet ? "waiting" : receiver.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
             cue = state.Cue.ToString(),
             look = show.LookName,
             effectDoes = rig.PostProcessing.TryGetValue(state.PostProcessing.ToString(), out var fx) ? Describe(fx) : "",
             strobe = state.Strobe.ToString(),
             fog = state.Fog,
             effect = state.PostProcessing.ToString(),
-            held = state.Held.Select(b => (int)b),
             bpm = now - state.LastAt[(int)Trigger.Beat] < 3 ? 60 / state.BeatPeriod : 0,
             outputs = outputs.Count > 0 ? string.Join(", ", outputs.Select(o => o.Name)) : "visualizer only",
-            counts = Enum.GetValues<Trigger>().ToDictionary(t => t.ToString(), t => state.Count(t)),
-            kit = Enumerable.Range(0, 4).Select(c => Enumerable.Range(0, 8).Select(i => state.Leds[c, i])),
-            notes,
         });
     }
     try { await Task.Delay(frameMs, stop.Token); }

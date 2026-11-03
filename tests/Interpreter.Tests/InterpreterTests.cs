@@ -156,8 +156,13 @@ public class ShowTests
         File.WriteAllText(path, shipped);
         try
         {
+            // the shipped looks and profiles, but a fixed row of PARs at full: not whatever lights and
+            // levels the user has set up in the editor
             var rig = Rig.Load(path);
-            rig.Fixtures = rig.Fixtures.Take(fixtures).ToList();
+            rig.Fixtures = Enumerable.Range(0, fixtures)
+                .Select(i => new Fixture { Name = $"PAR {i + 1}", Address = 1 + 7 * i, Profile = "par7", X = (i + 0.5) / fixtures })
+                .ToList();
+            rig.Master = 1;
             return rig;
         }
         finally { File.Delete(path); }
@@ -177,6 +182,43 @@ public class ShowTests
         Assert.Equal("searchlights", rig.Cues["Searchlights"]);
         Assert.Equal("white", rig.PostProcessing["BlackAndWhite"].Tint);          // a plain colour = a full tint
         Assert.Equal(new[] { "red", "blue" }, rig.PostProcessing["PolarizedRedAndBlue"].Polarize);
+    }
+
+    [Fact]
+    public void EditorRewritesOnlyTheFixtures()
+    {
+        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "rig.json"));
+        var lights = new List<Fixture>
+        {
+            new() { Name = "Right", Address = 8, Profile = "par7", X = 0.9, Y = 0.5 },
+            new() { Name = "Left \"A\"", Address = 1, Profile = "par7", X = 0.1, Y = 0.2 },
+        };
+        var edited = RigFile.ReplaceFixtures(text, lights);
+        var rig = Rig.Parse(edited);
+        Assert.Equal(new[] { "Left \"A\"", "Right" }, rig.Fixtures.Select(f => f.Name));   // left to right
+        Assert.Equal(0.2, rig.Fixtures[0].Y);
+        Assert.Contains("// The rig and the show.", edited);                                // comments kept
+        Assert.Equal(text[..text.IndexOf("\"fixtures\"")], edited[..edited.IndexOf("\"fixtures\"")]);
+        var after = text[(text.IndexOf("\"palette\"") - 200)..];
+        Assert.EndsWith(after[after.IndexOf("\"palette\"")..], edited);                     // the rest untouched
+    }
+
+    [Fact]
+    public void EditorFindsTheRealFixturesKey()
+    {
+        var text = """
+            // "fixtures": [ not this one ]
+            {
+              /* "fixtures": [] */
+              "looks": { "x": { "type": "solid", "colors": ["#ffffff"], "looks": [] } },
+              "profiles": { "p": { "red": 1, "green": 2, "blue": 3 } },
+              "fixtures": [ { "name": "old", "address": 1, "profile": "p" } ]
+            }
+            """;
+        var edited = RigFile.ReplaceFixtures(text, new[] { new Fixture { Name = "new", Address = 5, Profile = "p", X = 0.5 } });
+        Assert.Contains("// \"fixtures\": [ not this one ]", edited);
+        Assert.Contains("/* \"fixtures\": [] */", edited);
+        Assert.Equal("new", Rig.Parse(edited).Fixtures.Single().Name);
     }
 
     [Fact]
@@ -448,5 +490,52 @@ public class ShowTests
         Assert.Equal(0.5, back[0].R, 2);
         Assert.Equal(0.25, back[0].B, 2);
         Assert.Equal(Rgb.White, back[1]);
+    }
+
+    [Fact]
+    public void DerbyRepeatsGreenAndHoldsItsMotor()
+    {
+        var rig = TestRig(1);
+        rig.Fixtures = new() { new Fixture { Name = "Derby", Address = 57, Profile = "derby8" } };
+        var u = Universe.Build(rig, new[] { new Rgb(0, 0.5, 0) });
+        Assert.Equal(128, u[56]);                 // dimmer
+        Assert.Equal(255, u[58]);                 // green
+        Assert.Equal(255, u[60]);                 // second green bank
+        Assert.Equal(0, u[61]);                   // its own strobe off
+        Assert.Equal(40, u[62]);                  // rotation
+        Assert.Equal(0.5, Universe.Read(rig, u)[0].G, 2);
+    }
+
+    [Fact]
+    public void ManualColoursGoThroughMasterAndEachLightsLevel()
+    {
+        var rig = TestRig(3);
+        rig.Master = 0.5;
+        rig.Fixtures[1].Level = 0.5;
+        var show = new Show(rig) { Manual = new[] { 7, 1 } };     // white, red, and the third not given: off
+        var s = State(Cue.Default);
+        s.Strobe = Strobe.Fast;                                     // YARG is ignored
+        var o = show.Render(s, 0);
+        Assert.Equal(new Rgb(0.5, 0.5, 0.5), o[0]);
+        Assert.Equal(new Rgb(0.25, 0, 0), o[1]);
+        Assert.Equal(Rgb.Black, o[2]);
+        show.Manual = null;
+        Assert.NotEqual(o[1], show.Render(s, 0.1)[1]);
+    }
+
+    [Fact]
+    public void EditorSavesMasterAndLevels()
+    {
+        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "rig.json"));
+        var edited = RigFile.SetNumber(text, "master", 0.65);
+        Assert.Equal(0.65, Rig.Parse(edited).Master);
+        int at = text.IndexOf("\"master\": ") + "\"master\": ".Length, after = text.IndexOf(',', at);
+        Assert.Equal(text[..at] + "0.65" + text[after..], edited);                // only the number changed
+
+        var added = RigFile.SetNumber("// rig\n{ \"fixtures\": [] }", "master", 0.5);
+        Assert.Contains("\"master\": 0.5,", added);
+
+        var lights = new[] { new Fixture { Name = "Dim", Address = 1, Profile = "par7", X = 0.5, Level = 0.4 } };
+        Assert.Equal(0.4, Rig.Parse(RigFile.ReplaceFixtures(text, lights)).Fixtures.Single().Level);
     }
 }

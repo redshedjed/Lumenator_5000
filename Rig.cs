@@ -34,8 +34,10 @@ public sealed class Profile
     public int? White { get; set; }
     /// <summary>Channels held at a fixed value, e.g. a mode channel that must stay 0.</summary>
     public Dictionary<string, byte> Fixed { get; set; } = new();
+    /// <summary>Channels that repeat a colour (red | green | blue | white), e.g. a second bank of green LEDs.</summary>
+    public Dictionary<string, string> Copy { get; set; } = new();
     public int Width => new[] { Dimmer ?? 0, Red, Green, Blue, White ?? 0 }
-        .Concat(Fixed.Keys.Select(int.Parse)).Max();
+        .Concat(Fixed.Keys.Select(int.Parse)).Concat(Copy.Keys.Select(int.Parse)).Max();
 }
 
 public sealed class Fixture
@@ -43,6 +45,8 @@ public sealed class Fixture
     public string Name { get; set; } = "";
     public int Address { get; set; } = 1;
     public string Profile { get; set; } = "par7";
+    /// <summary>This light's brightness, 0-1, on top of the master: evens out lights that are brighter than others.</summary>
+    public double Level { get; set; } = 1.0;
     /// <summary>Where it sits on the visualizer stage, 0 (left) to 1 (right) and 0 (back) to 1 (front).</summary>
     public double X { get; set; } = double.NaN;
     public double Y { get; set; } = 0.5;
@@ -184,9 +188,11 @@ public sealed class Rig
         Converters = { new PostEffectConverter() },
     };
 
-    public static Rig Load(string path)
+    public static Rig Load(string path) => Parse(File.ReadAllText(path));
+
+    public static Rig Parse(string json)
     {
-        var rig = JsonSerializer.Deserialize<Rig>(File.ReadAllText(path), Json) ?? throw new InvalidDataException("empty rig file");
+        var rig = JsonSerializer.Deserialize<Rig>(json, Json) ?? throw new InvalidDataException("empty rig file");
         rig.Validate();
         return rig;
     }
@@ -202,6 +208,10 @@ public sealed class Rig
         if (Fixtures.Count == 0)
             throw new InvalidDataException("no fixtures");
         Looks.TryAdd("stagekit", new Look());
+        foreach (var (name, p) in Profiles)
+            foreach (var (ch, colour) in p.Copy)
+                if (!int.TryParse(ch, out _) || colour is not ("red" or "green" or "blue" or "white"))
+                    throw new InvalidDataException($"profile {name}: copy \"{ch}\": \"{colour}\" (red, green, blue or white)");
         for (int i = 0; i < Fixtures.Count; i++)
         {
             var f = Fixtures[i];
@@ -209,6 +219,8 @@ public sealed class Rig
                 throw new InvalidDataException($"fixture {f.Name}: no profile \"{f.Profile}\"");
             if (f.Address < 1 || f.Address + p.Width - 1 > 512)
                 throw new InvalidDataException($"fixture {f.Name}: address {f.Address} doesn't fit");
+            if (f.Level is < 0 or > 1 || double.IsNaN(f.Level))
+                throw new InvalidDataException($"fixture {f.Name}: level {f.Level} (0 to 1)");
             if (double.IsNaN(f.X))
                 f.X = Fixtures.Count == 1 ? 0.5 : 0.1 + 0.8 * i / (Fixtures.Count - 1);
         }

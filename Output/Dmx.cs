@@ -30,15 +30,18 @@ public static class Universe
                 Set(d, B(level));
                 c = level > 0 ? c.Scale(1 / level) : Rgb.Black;
             }
+            double white = 0;
             if (p.White is int w)
             {
-                double white = Math.Min(c.R, Math.Min(c.G, c.B));
+                white = Math.Min(c.R, Math.Min(c.G, c.B));
                 Set(w, B(white));
                 c = new Rgb(c.R - white, c.G - white, c.B - white);
             }
             Set(p.Red, B(c.R));
             Set(p.Green, B(c.G));
             Set(p.Blue, B(c.B));
+            foreach (var (offset, colour) in p.Copy)
+                Set(int.Parse(offset), B(colour switch { "red" => c.R, "green" => c.G, "blue" => c.B, _ => white }));
         }
         return u;
     }

@@ -19,6 +19,9 @@ public sealed class Show
 
     public Rig Rig { get; set; }
     public string LookName { get; private set; } = "";
+    /// <summary>Manual mode: each light's colour as red/green/blue bits (1/2/4), shown through master and
+    /// its level instead of the look; null = YARG drives the lights.</summary>
+    public int[]? Manual { get; set; }
 
     public Show(Rig rig) => Rig = rig;
 
@@ -52,8 +55,14 @@ public sealed class Show
             for (int i = 0; i < n; i++)
                 o[i] = on ? Rgb.White : Rgb.Black;
         }
+        if (Manual is { } bits)
+            for (int i = 0; i < n; i++)
+            {
+                int b = i < bits.Length ? bits[i] : 0;
+                o[i] = new Rgb(b & 1, (b >> 1) & 1, (b >> 2) & 1);
+            }
         for (int i = 0; i < n; i++)
-            o[i] = o[i].Scale(Math.Clamp(rig.Master, 0, 1));
+            o[i] = o[i].Scale(Math.Clamp(rig.Master, 0, 1) * Math.Clamp(rig.Fixtures[i].Level, 0, 1));
         return o;
     }
 
