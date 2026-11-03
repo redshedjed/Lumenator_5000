@@ -28,7 +28,7 @@ dotnet test tests/Lumenator.Tests
 ```
 
 Options: `--rig path/to/rig.json` (default: `rig.json` in the current folder), `--port 8080`,
-`--no-visualizer`.
+`--no-visualizer`, `--reaper` (below).
 
 In YARG: Settings > All Settings > Lighting > **Enable DMX output**, universe 1 (`universe` in
 `rig.json`). YARG sends multicast on the same PC, which this picks up.
@@ -42,6 +42,30 @@ sends on beat, keyframe and bonus, but it can't tell for drums. In YARG's advanc
 the game channels to free ones, for example cue 101, beatline 102, bonus 103, keyframe 104, drums 105,
 post-processing 106, guitar 107, bass 108, keys 109, and put the same numbers under `channels` in
 `rig.json`. The visualizer warns when fog is on with the default layout.
+
+## Preview a chart from REAPER
+
+`--reaper` takes the show from a chart you're editing in REAPER instead of from YARG, so you can see
+your lights as you work, including edits you haven't saved.
+
+1. In REAPER: Options > Preferences > Control/OSC/web > Add. Control surface mode **OSC**, pattern config
+   Default, mode **Configure device IP + local port**, device IP `127.0.0.1`, device port `9000`. Once only.
+2. Open the project, then run [reaper/lumenator_export.lua](reaper/lumenator_export.lua) from REAPER's
+   Actions list (ReaScript: Run, or New action > Load ReaScript). It only reads the project.
+3. `dotnet run -- --reaper`, and press play in REAPER.
+
+It's an editor's preview, not the whole show:
+
+- **Scrub anywhere, and the lights wait.** They don't work out what was happening at the cursor: they stay
+  dark until playback reaches the next cue, and keyframes before that do nothing. A strobe, fog or screen
+  effect event still takes effect when it's reached.
+- **Stop goes dark, pause holds the lights, and a loop going round keeps the look running.**
+- A song starts dark too: where YARG would show the `band` look before the first cue, this waits for it.
+- After a scrub, a `step` look can start on a different colour than in a play-through, because its colour
+  comes from the keyframes counted so far. The timing is right; judge exact colours from the top.
+- It shows Lumenator's reading of your chart, not YARG's, so check the result in the game. The `stagekit`
+  look stays dark, because YARG makes those patterns. Notes are the Expert gems as charted, on `PART DRUMS`,
+  `GUITAR`, `BASS` and `KEYS`.
 
 ## rig.json
 

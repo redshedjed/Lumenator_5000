@@ -16,6 +16,7 @@ public sealed class Show
     Rgb[] _last = Array.Empty<Rgb>();
     double _lastAt;
     long _chop = -1;
+    Rgb[]? _frozen;
 
     public Rig Rig { get; set; }
     public string LookName { get; private set; } = "";
@@ -29,25 +30,37 @@ public sealed class Show
     {
         var rig = Rig;
         int n = rig.Fixtures.Count;
-        var name = rig.LookNameFor(s.Cue);
-        if (name != LookName)
+        Rgb[] o;
+        if (s.Waiting)
         {
-            _from = LookName;
-            _changedAt = now;
-            LookName = name;
+            // dark, with nothing left to fade or trail from: the next cue just kicks on
+            o = new Rgb[n];
+            LookName = "";
+            _history.Clear();
+            _last = Array.Empty<Rgb>();
         }
-
-        var o = Draw(name, s, now, n, 0);
-        double fade = rig.Looks[name].Fade;
-        if (fade > 0 && now - _changedAt < fade && rig.Looks.ContainsKey(_from))
+        else
         {
-            var from = Draw(_from, s, now, n, 0);
-            double f = Smooth((now - _changedAt) / fade);
-            for (int i = 0; i < n; i++)
-                o[i] = from[i].Lerp(o[i], f);
-        }
+            var name = rig.LookNameFor(s.Cue);
+            if (name != LookName)
+            {
+                _from = LookName;
+                _changedAt = now;
+                LookName = name;
+            }
 
-        o = Effect(rig, s, now, o);
+            o = Draw(name, s, now, n, 0);
+            double fade = rig.Looks[name].Fade;
+            if (fade > 0 && now - _changedAt < fade && rig.Looks.ContainsKey(_from))
+            {
+                var from = Draw(_from, s, now, n, 0);
+                double f = Smooth((now - _changedAt) / fade);
+                for (int i = 0; i < n; i++)
+                    o[i] = from[i].Lerp(o[i], f);
+            }
+
+            o = Effect(rig, s, now, o);
+        }
 
         if (s.Strobe != Strobe.Off && rig.StrobePerBeat.TryGetValue(s.Strobe.ToString(), out var perBeat) && perBeat > 0)
         {
@@ -55,6 +68,15 @@ public sealed class Show
             for (int i = 0; i < n; i++)
                 o[i] = on ? Rgb.White : Rgb.Black;
         }
+        if (s.Frozen && !s.Waiting)
+        {
+            if (_frozen?.Length == n)
+                o = (Rgb[])_frozen.Clone();
+            else
+                _frozen = (Rgb[])o.Clone();
+        }
+        else
+            _frozen = null;
         if (Manual is { } bits)
             for (int i = 0; i < n; i++)
             {

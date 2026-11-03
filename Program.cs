@@ -3,8 +3,9 @@
 // FTDI USB-DMX cable, sACN, and/or the browser visualizer. Started from Neal Manson's YARG_sACN_to_DMX,
 // which mapped YARG's Stage Kit lights straight onto 2/4/8 PARs (the "stagekit" look still does).
 //
-//   Lumenator [--rig rig.json] [--sim] [--port 8080] [--no-visualizer]
-//     --sim   fake YARG: a looping demo song sent as real sACN (no game needed)
+//   Lumenator [--rig rig.json] [--sim | --reaper] [--port 8080] [--no-visualizer]
+//     --sim      fake YARG: a looping demo song sent as real sACN (no game needed)
+//     --reaper   follow a chart being edited in REAPER instead of YARG
 
 using System.Diagnostics;
 using YargDmx;
@@ -15,7 +16,7 @@ using YargDmx.Visualizer;
 
 // the rig.json you're editing (current folder) wins over the copy next to the exe
 string rigPath = File.Exists("rig.json") ? Path.GetFullPath("rig.json") : Path.Combine(AppContext.BaseDirectory, "rig.json");
-bool sim = false, visualizer = true;
+bool sim = false, reaper = false, visualizer = true;
 int? port = null;
 for (int i = 0; i < args.Length; i++)
 {
@@ -23,12 +24,18 @@ for (int i = 0; i < args.Length; i++)
     {
         case "--rig": rigPath = Path.GetFullPath(args[++i]); break;
         case "--sim": sim = true; break;
+        case "--reaper": reaper = true; break;
         case "--port": port = int.Parse(args[++i]); break;
         case "--no-visualizer": visualizer = false; break;
         default:
-            Console.WriteLine("usage: Lumenator [--rig rig.json] [--sim] [--port 8080] [--no-visualizer]");
+            Console.WriteLine("usage: Lumenator [--rig rig.json] [--sim | --reaper] [--port 8080] [--no-visualizer]");
             return 2;
     }
+}
+if (sim && reaper)
+{
+    Console.WriteLine("--sim and --reaper are different inputs: pick one");
+    return 2;
 }
 
 Rig rig;
@@ -43,26 +50,46 @@ Console.WriteLine($"rig: {rigPath} ({rig.Fixtures.Count} fixtures, {rig.Looks.Co
 var clock = Stopwatch.StartNew();
 var decoder = new YargDecoder(rig.Channels, clock);
 var show = new Show(rig);
-using var receiver = new E131Receiver(rig.Universe, decoder.OnFrame);
-Console.WriteLine($"listening for YARG on sACN universe {rig.Universe}");
+// one input: a chart in REAPER, the simulator, or YARG
+using var receiver = reaper ? null : new E131Receiver(rig.Universe, decoder.OnFrame);
+if (receiver != null)
+    Console.WriteLine($"listening for YARG on sACN universe {rig.Universe}");
 // YARG's UDP data stream, when it's switched on in YARG: tempo, pause, spotlights... and no clashing channels
 DataStreamReceiver? stream = null;
-try
+if (!sim && !reaper)
 {
-    stream = new DataStreamReceiver(decoder.OnDataStream);
-    Console.WriteLine($"listening for YARG's data stream on UDP {DataStreamPacket.Port}");
-}
-catch (System.Net.Sockets.SocketException e)
-{
-    Console.WriteLine($"data stream: can't listen on UDP {DataStreamPacket.Port} ({e.Message}); sACN only");
+    try
+    {
+        stream = new DataStreamReceiver(decoder.OnDataStream);
+        Console.WriteLine($"listening for YARG's data stream on UDP {DataStreamPacket.Port}");
+    }
+    catch (System.Net.Sockets.SocketException e)
+    {
+        Console.WriteLine($"data stream: can't listen on UDP {DataStreamPacket.Port} ({e.Message}); sACN only");
+    }
 }
 using var streamOwner = stream;
 using var simulator = sim ? new YargSimulator(rig.Channels, rig.Universe) : null;
 if (simulator != null)
 {
-    receiver.Sources.Only = simulator.SourceId;      // not YARG too, if it's running
+    receiver!.Sources.Only = simulator.SourceId;     // not YARG too, if it's running
     Console.WriteLine("simulator: sending a demo song as YARG would");
 }
+ReaperInput? reaperInput = null;
+if (reaper)
+{
+    try
+    {
+        reaperInput = new ReaperInput(decoder, clock);
+        Console.WriteLine($"following REAPER: OSC on UDP {ReaperInput.OscPort}, chart from {ReaperInput.DefaultChartPath}");
+    }
+    catch (System.Net.Sockets.SocketException e)
+    {
+        Console.WriteLine($"REAPER: can't listen on UDP {ReaperInput.OscPort} ({e.Message})");
+        return 1;
+    }
+}
+using var reaperOwner = reaperInput;
 
 var outputs = new List<IDmxOutput>();
 var outputProblems = new List<string>();      // shown in the visualizer's output menu
@@ -275,10 +302,10 @@ while (!stop.IsCancellationRequested)
             colours = rig.Output.Visualizer
                 ? shown.Select(c => new[] { (int)Math.Round(c.R * 255), (int)Math.Round(c.G * 255), (int)Math.Round(c.B * 255) })
                 : null,
-            input = quiet ? "waiting" : state.Source == "data stream" ? "YARG data stream"
-                : receiver.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
+            input = reaper ? state.Source : quiet ? "waiting" : state.Source == "data stream" ? "YARG data stream"
+                : receiver?.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
             paused = state.Paused,
-            cue = state.Cue.ToString(),
+            cue = state.Waiting ? "waiting for a cue" : state.Cue.ToString(),
             look = show.LookName,
             effectDoes = rig.PostProcessing.TryGetValue(state.PostProcessing.ToString(), out var fx) ? Describe(fx) : "",
             strobe = state.Strobe.ToString(),

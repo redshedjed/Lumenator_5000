@@ -115,6 +115,12 @@ public sealed class YargState
     /// <summary>The lead vocal's pitch (MIDI note number), 0 between notes.</summary>
     public float Vocal;
 
+    // only from REAPER
+    /// <summary>After a scrub or a stop: dark until the next cue, and keyframes do nothing till then.</summary>
+    public bool Waiting;
+    /// <summary>REAPER is paused: hold the lights as they are.</summary>
+    public bool Frozen;
+
     public long Count(Trigger t) => Counts[(int)t];
     public double Since(Trigger t, double now) => now - LastAt[(int)t];
 
@@ -290,7 +296,58 @@ public sealed class YargDecoder
         }
     }
 
-    // --- shared by both inputs
+    // --- a chart played from REAPER (see ReaperPlayer)
+
+    /// <summary>One step of the song: <paramref name="reset"/> if the cursor moved or it stopped, then what
+    /// the chart says in order. <paramref name="struck"/> are the notes that began this step, so a note
+    /// right after the same note still counts as a hit.</summary>
+    public void OnChart(double now, string source, bool reset, bool paused, double bpm,
+                        IReadOnlyList<ChartEvent> events, byte[] held, byte[] struck)
+    {
+        lock (_lock)
+        {
+            var s = _state;
+            s.LastFrameAt = now;
+            s.Source = source;
+            s.Paused = s.Frozen = paused;
+            if (bpm > 0)
+            {
+                s.Bpm = bpm;
+                s.BeatPeriod = 60.0 / bpm;
+            }
+            if (reset)
+            {
+                s.Waiting = true;
+                s.Cue = Cue.NoCue;
+                s.CueSince = now;
+                (s.Strobe, s.Fog, s.PostProcessing) = (Strobe.Off, false, PostProcessing.Default);
+                (s.KeyframeStep, s.KeyframePrev) = (0, 0);
+            }
+            foreach (var e in events)
+                switch (e.Kind)
+                {
+                    case ChartKind.Cue:
+                        s.Waiting = false;
+                        s.Strobe = Strobe.Off;       // as YARG does: any new cue ends a strobe
+                        SetCue(s, (Cue)e.Value, now);
+                        break;
+                    case ChartKind.Strobe: s.Strobe = (Strobe)e.Value; break;
+                    case ChartKind.Fog: s.Fog = e.Value != 0; break;
+                    case ChartKind.Effect: s.PostProcessing = (PostProcessing)e.Value; break;
+                    case ChartKind.Beat: Beat(s, measure: e.Value == 1, now); break;
+                    case ChartKind.Keyframe:
+                        if (!s.Waiting)
+                            Keyframe(s, e.Value, now);
+                        break;
+                }
+            byte Without(int i) => (byte)(held[i] & ~struck[i]);
+            int g = (int)Instrument.Guitar, b = (int)Instrument.Bass, k = (int)Instrument.Keys, d = (int)Instrument.Drums;
+            Notes(s, Without(g), Without(b), Without(k), Without(d), now);
+            Notes(s, held[g], held[b], held[k], held[d], now);
+        }
+    }
+
+    // --- shared by the inputs
 
     static void SetCue(YargState s, Cue cue, double now)
     {
