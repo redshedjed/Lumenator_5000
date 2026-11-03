@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DMX Visualizer</title>
+<title>Lumenator 5000</title>
 <style>
   :root { --bg: #07080b; --panel: #11131a; --line: #23262f; --text: #d8dbe3; --dim: #7c8190; --on: #ffd23f; }
   * { box-sizing: border-box; }
@@ -14,7 +14,23 @@
   .kv span { color: var(--text); font-weight: 600; margin-left: 4px; display: inline-block; vertical-align: bottom;
              overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
   /* fixed widths so the header doesn't shift as values change */
-  #src { width: 150px; } #strobe { width: 62px; } #fog { width: 28px; } #bpm { width: 64px; } #outs { width: 150px; }
+  #src { width: 200px; } #strobe { width: 62px; } #fog { width: 28px; } #bpm { width: 64px; } #outs { width: 190px; }
+  /* output menu */
+  .outwrap { position: relative; }
+  #outBtn { background: none; border: 1px solid transparent; padding: 2px 6px; margin: -3px 0; font: inherit; cursor: pointer; text-align: left; }
+  #outBtn #outs { width: auto; max-width: 260px; }
+  #outBtn:hover, #outBtn[aria-expanded=true] { border-color: var(--line); background: var(--panel); }
+  #outMenu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: 360px; max-width: calc(100vw - 32px);
+             background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px;
+             box-shadow: 0 8px 24px #000a; }
+  #outMenu[hidden] { display: none; }
+  #outMenu .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #outMenu select { flex: 1; min-width: 0; }
+  #outMenu input[type=number] { width: 90px; }
+  #outMenu .note { color: var(--dim); font-size: 12px; }
+  #outMenu .err { color: #ff7a6b; font-size: 12px; }
+  #outMenu .err:empty { display: none; }
+  #stage.off::after { content: 'Visualizer off'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); }
   #stage { position: relative; height: 56vh; min-height: 280px; overflow: hidden; background: #040507; }
   #wall { position: absolute; inset: 0; }
   .fx { position: absolute; transform: translate(-50%, -50%); text-align: center; }
@@ -92,12 +108,30 @@
 </head>
 <body>
 <header>
-  <b>DMX Visualizer</b>
+  <b>Lumenator 5000</b>
   <div class="kv">input<span id="src">-</span></div>
   <div class="kv">strobe<span id="strobe">-</span></div>
   <div class="kv">fog<span id="fog">-</span></div>
   <div class="kv">tempo<span id="bpm">-</span></div>
-  <div class="kv">outputs<span id="outs">-</span></div>
+  <div class="outwrap">
+    <button id="outBtn" class="kv" aria-expanded="false" aria-controls="outMenu">outputs<span id="outs">-</span> ▾</button>
+    <div id="outMenu" role="dialog" aria-label="Outputs" hidden>
+      <label class="row"><input type="checkbox" id="outViz"> Visualizer <span class="note">draw the lights on this page</span></label>
+      <div class="row">
+        <label for="outUsb">USB adapter</label>
+        <select id="outUsb"><option value="">None</option></select>
+        <button id="outScan">Rescan</button>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="outSacn"> sACN</label>
+        <label class="note" for="outUni">universe</label>
+        <input type="number" id="outUni" min="1" max="63999" value="2">
+      </div>
+      <div class="note">sACN sends what the lights get (the rig after the looks and brightness), never YARG's own
+        universe (<span id="outYarg">1</span>).</div>
+      <div id="outProblems" class="err"></div>
+    </div>
+  </div>
 </header>
 <div id="now">
   <div class="slot"><div class="label">Cue</div><div class="big" id="cue">-</div><div class="small" id="cueFor"></div></div>
@@ -365,6 +399,8 @@ function startDrag(e, i) {
 
 function draw(colours) {
   const w = wall.width = stage.clientWidth, h = wall.height = stage.clientHeight;
+  stage.classList.toggle('off', !colours);
+  colours = colours || fixtures.map(() => [0, 0, 0]);   // visualizer output off: lights shown dark
   ctx.globalCompositeOperation = 'lighter';
   colours.forEach((c, i) => {
     const f = fixtures[i]; if (!f) return;
@@ -388,6 +424,56 @@ function draw(colours) {
     f.lens.style.background = `rgb(${r},${g},${b})`;
     f.lens.style.boxShadow = Math.max(r, g, b) > 0 ? `0 0 22px 6px rgb(${r},${g},${b})` : 'none';
   });
+}
+
+// --- output menu: visualizer, USB-DMX adapter, sACN; saved to rig.json's "output" section
+let outTouchedAt = -Infinity, outError = '', lastOutput = null;
+function openOutMenu(open) {
+  $('outMenu').hidden = !open;
+  $('outBtn').setAttribute('aria-expanded', open);
+  if (open) scanUsb();
+}
+$('outBtn').addEventListener('click', () => openOutMenu($('outMenu').hidden));
+document.addEventListener('click', e => { if (!e.target.closest('.outwrap')) openOutMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('outMenu').hidden) { openOutMenu(false); $('outBtn').focus(); } });
+
+async function scanUsb() {
+  $('outScan').disabled = true;
+  const res = await post('/api/usb', {});
+  $('outScan').disabled = false;
+  const current = lastOutput?.usb || '';
+  const options = [['', 'None'], ...(res.devices || []).map(d => [d.serial, `${d.description || 'USB-DMX'} (${d.serial})`])];
+  if (current && !options.some(([v]) => v === current))
+    options.push([current, current === '(first found)' ? 'First adapter found' : `${current} (not plugged in)`]);
+  $('outUsb').innerHTML = options.map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join('');
+  $('outUsb').value = current;
+  outError = res.ok ? '' : res.error;
+  showProblems();
+}
+$('outScan').addEventListener('click', scanUsb);
+
+async function saveOutputs() {
+  outTouchedAt = performance.now();
+  const sacn = $('outSacn').checked ? parseInt($('outUni').value, 10) || 0 : 0;
+  const res = await post('/api/outputs', { visualizer: $('outViz').checked, usb: $('outUsb').value, sacn });
+  outError = res.ok ? '' : res.error;
+  showProblems();
+}
+['outViz', 'outUsb', 'outSacn', 'outUni'].forEach(id => $(id).addEventListener('change', saveOutputs));
+
+function showProblems() {
+  $('outProblems').textContent = [outError, ...(lastOutput?.problems || [])].filter(Boolean).join(' · ');
+}
+function showOutputs(o) {
+  if (!o) return;
+  lastOutput = o;
+  $('outYarg').textContent = o.yargUniverse;
+  showProblems();
+  if (performance.now() - outTouchedAt < 1500 || $('outMenu').contains(document.activeElement) && document.activeElement.id === 'outUni') return;
+  $('outViz').checked = o.visualizer;
+  $('outSacn').checked = o.sacn !== 0;
+  $('outUni').value = o.sacn || (o.yargUniverse === 1 ? 2 : 1);
+  if ([...$('outUsb').options].some(op => op.value === o.usb)) $('outUsb').value = o.usb;
 }
 
 showManual();
@@ -415,7 +501,7 @@ es.onmessage = ev => {
     manual = d.manual;                                // changed in another tab, or the bridge restarted
     showManual();
   }
-  $('src').textContent = d.input; $('look').textContent = d.look;
+  $('src').textContent = d.input + (d.paused ? ' · paused' : ''); $('look').textContent = d.look;
   if (d.cue !== lastCue) { lastCue = d.cue; cueSince = performance.now(); $('cue').textContent = d.cue; }
   const held = (performance.now() - cueSince) / 1000;
   $('cue').classList.toggle('flash', held < 0.6);
@@ -425,6 +511,7 @@ es.onmessage = ev => {
   $('effectDoes').textContent = d.effect === 'Default' ? 'none' : (d.effectDoes || 'screen only: lights unchanged');
   $('strobe').textContent = d.strobe; $('fog').textContent = d.fog ? 'on' : 'off';
   $('bpm').textContent = d.bpm ? Math.round(d.bpm) + ' bpm' : '-'; $('outs').textContent = d.outputs;
+  showOutputs(d.output);
 };
 es.onerror = () => { $('src').textContent = 'disconnected'; };
 </script>

@@ -152,8 +152,12 @@ sealed class PostEffectConverter : JsonConverter<PostEffect>
 public sealed class OutputConfig
 {
     public int Fps { get; set; } = 40;
-    /// <summary>FTDI USB-DMX ("Open DMX") cable: true to drive it.</summary>
+    /// <summary>FTDI USB-DMX ("Open DMX") cable to drive, by serial number ("" = none).</summary>
+    public string UsbAdapter { get; set; } = "";
+    /// <summary>Older setting: true drives the first FTDI cable found (when <see cref="UsbAdapter"/> is "").</summary>
     public bool Ftdi { get; set; }
+    /// <summary>Draw the result on the visualizer page (off: the page still runs, for these settings).</summary>
+    public bool Visualizer { get; set; } = true;
     /// <summary>Also send the result as sACN on this universe (0 = off). Not YARG's own universe.</summary>
     public ushort SacnUniverse { get; set; }
     public int VisualizerPort { get; set; } = 8080;

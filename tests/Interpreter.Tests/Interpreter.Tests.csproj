@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\YARG_sACN_to_DMX.csproj" />
+    <ProjectReference Include="..\..\Lumenator.csproj" />
   </ItemGroup>
 
 </Project>

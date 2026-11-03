@@ -10,10 +10,13 @@
     "fog": 6, "strobe": 7, "cue": 8, "beatline": 14, "bonus": 15, "keyframe": 16,
     "drums": 22, "post_processing": 40, "guitar": 24, "bass": 30, "keys": 32
   },
+  // the visualizer's Outputs menu sets visualizer, usb_adapter and sacn_universe
   "output": {
     "fps": 40,
-    "ftdi": false,          // true: FTDI USB-DMX cable (untested)
-    "sacn_universe": 0,     // e.g. 2: also send the result as sACN (QLC+, an Art-Net/sACN node...)
+    "visualizer": true,     // draw the lights on the visualizer page
+    "usb_adapter": "",      // FTDI USB-DMX ("Open DMX") cable by serial number; "" = none (untested)
+    "ftdi": false,          // older setting: true = the first FTDI cable found, when usb_adapter is ""
+    "sacn_universe": 0,     // e.g. 2: also send the result as sACN (QLC+, an sACN node...); 0 = off
     "visualizer_port": 8080,
     "fog_channel": 0        // e.g. 100: a fog machine's channel, 255 while YARG's fog is on
   },

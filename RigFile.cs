@@ -51,16 +51,42 @@ public static class RigFile
         return text[..start] + v + text[end..];
     }
 
+    /// <summary><paramref name="text"/> with <c>"object": { "key": value }</c> set (a top-level object;
+    /// the key is added at its top if it isn't there). <paramref name="value"/> is a string, number or bool.</summary>
+    public static string SetIn(string text, string obj, string key, object value)
+    {
+        var literal = JsonSerializer.Serialize(value);
+        var (open, objIndent) = FindValue(text, obj);
+        if (open < 0 || text[open] != '{')
+            throw new InvalidDataException($"rig.json has no \"{obj}\" section");
+        var (start, _) = FindValue(text, key, open);
+        if (start < 0)
+            return text[..(open + 1)] + $"\n{objIndent}  \"{key}\": {literal}," + text[(open + 1)..];
+        int end = start;
+        if (text[start] == '"')
+        {
+            for (end++; end < text.Length && text[end] != '"'; end++)
+                if (text[end] == '\\') end++;
+            end++;
+        }
+        else
+            while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not (',' or '}' or ']' or '/')) end++;
+        return text[..start] + literal + text[end..];
+    }
+
     static string Num(double v) => Math.Round(Math.Clamp(double.IsNaN(v) ? 0.5 : v, 0, 1), 3).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Where the value of the top-level <paramref name="key"/> starts (-1 if there's none) and the
     /// key's indentation. Skips strings and // or /* */ comments.</summary>
-    static (int Start, string Indent) FindValue(string t, string key)
+    static (int Start, string Indent) FindValue(string t, string key, int inObject = -1)
     {
+        // top level, or inside the object whose { is at inObject (its keys are then at depth 1 too)
         int depth = 0, keyAt = -1;
         bool colon = false;
-        for (int i = 0; i < t.Length; i++)
+        for (int i = Math.Max(0, inObject); i < t.Length; i++)
         {
+            if (inObject >= 0 && i > inObject && depth == 0)
+                break;                                      // past the object's closing }
             char c = t[i];
             if (c == '/' && i + 1 < t.Length && t[i + 1] == '/') { i = t.IndexOf('\n', i) is var n and >= 0 ? n : t.Length; continue; }
             if (c == '/' && i + 1 < t.Length && t[i + 1] == '*') { i = t.IndexOf("*/", i + 2, StringComparison.Ordinal) is var e and >= 0 ? e + 1 : t.Length; continue; }

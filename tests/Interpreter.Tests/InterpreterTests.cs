@@ -69,6 +69,81 @@ public class DecoderTests
         return f;
     }
 
+    // a data stream packet mid-song with nothing happening (YARG's "no beat" is 3)
+    static DataStreamPacket Playing(byte cue = 0, byte section = 0) => new(
+        Scene: (byte)DataStreamPacket.Scenes.Gameplay, Paused: 1, VenueSize: 1, Bpm: 150, SongSection: section,
+        Guitar: 0, Bass: 0, Drums: 0, Keys: 0, Vocal: 0, Harmony0: 0, Harmony1: 0, Harmony2: 0,
+        LightingCue: cue, PostProcessing: 0, Fog: false, Strobe: 24, Beat: DataStreamPacket.NoBeat, Keyframe: 0,
+        Bonus: false, AutoGenVenue: false, Spotlight: 0, Singalong: 0, CameraConstraint: 0, CameraPriority: 0,
+        CameraSubject: 0);
+
+    static byte Lighting(string name) => (byte)Array.IndexOf(DataStreamPacket.LightingTypes, name);
+
+    [Fact]
+    public void DataStreamPacketRoundTrips()
+    {
+        var p = Playing(Lighting("Frenzy")) with { Bpm = 123.5f, Vocal = 64, Spotlight = 1 | 8, CameraSubject = 7 };
+        Assert.True(DataStreamPacket.TryParse(p.ToBytes(), out var back));
+        Assert.Equal(p, back);
+        Assert.Equal(47, p.ToBytes().Length);
+        var bytes = p.ToBytes();
+        bytes[0] = 0;
+        Assert.False(DataStreamPacket.TryParse(bytes, out _));          // not YARG's header
+    }
+
+    [Fact]
+    public void DataStreamDrivesCuesBeatsAndTempo()
+    {
+        var d = new YargDecoder(Map, Stopwatch.StartNew());
+        d.OnDataStream(Playing() with { Scene = (byte)DataStreamPacket.Scenes.Menu });
+        Assert.Equal(Cue.Menu, d.Snapshot().Cue);
+        d.OnDataStream(Playing());                                         // a song starts: NoCue until its first cue
+        Assert.Equal(Cue.NoCue, d.Snapshot().Cue);
+        d.OnDataStream(Playing(Lighting("CoolAutomatic")));
+        Assert.Equal(Cue.CoolLoop, d.Snapshot().Cue);
+        d.OnDataStream(Playing(Lighting("CoolAutomatic"), section: Lighting("Verse")));   // verse comes as the section
+        Assert.Equal(Cue.Verse, d.Snapshot().Cue);
+        d.OnDataStream(Playing(Lighting("FlareSlow"), Lighting("Verse")) with
+        {
+            Beat = 0, Keyframe = Lighting("KeyframeNext"), Strobe = Lighting("StrobeFast"), PostProcessing = 14,
+            Drums = (byte)(Drum.Kick | Drum.Red), Paused = 2,
+        });
+        var s = d.Snapshot();
+        Assert.Equal(Cue.FlareSlow, s.Cue);
+        Assert.Equal((1, 1, 1), (s.Count(Trigger.Beat), s.Count(Trigger.Downbeat), s.Count(Trigger.Keyframe)));
+        Assert.Equal((1, 1), (s.Count(Trigger.Snare), s.Count(Trigger.Kick)));
+        Assert.Equal(Strobe.Fast, s.Strobe);
+        Assert.Equal(PostProcessing.DesaturatedBlue, s.PostProcessing);   // YARG.Core's order, not the DMX values
+        Assert.Equal(0.4, s.BeatPeriod, 3);                               // 150 bpm, exactly
+        Assert.True(s.Paused);
+        Assert.Equal("data stream", s.Source);
+    }
+
+    [Fact]
+    public void SacnOnlyFeedsTheStageKitWhileTheDataStreamRuns()
+    {
+        var d = new YargDecoder(Map, Stopwatch.StartNew());
+        d.OnDataStream(Playing(Lighting("Frenzy")));      // joined mid-song: takes the cue it's on
+        d.OnFrame(Frame((Map.Cue, (byte)Cue.Stomp), (Map.Red[0], 255), (Map.Keyframe, 3)));
+        var s = d.Snapshot();
+        Assert.Equal(Cue.Frenzy, s.Cue);                  // not sACN's cue
+        Assert.Equal(0, s.Count(Trigger.Keyframe));
+        Assert.True(s.Leds[0, 0]);                        // but its Stage Kit LEDs
+    }
+
+    [Fact]
+    public void DataStreamRetakesTheCueAfterAGap()
+    {
+        var clock = new Stopwatch();                      // stopped: time moves only when the test says
+        var d = new YargDecoder(Map, clock);
+        d.OnDataStream(Playing(Lighting("Frenzy")));
+        clock.Start(); Thread.Sleep(1100); clock.Stop();  // the stream goes quiet; sACN takes over
+        d.OnFrame(Frame((Map.Cue, (byte)Cue.Menu)));
+        Assert.Equal(Cue.Menu, d.Snapshot().Cue);
+        d.OnDataStream(Playing(Lighting("Frenzy")));      // back, same song, same cue
+        Assert.Equal(Cue.Frenzy, d.Snapshot().Cue);
+    }
+
     [Fact]
     public void HeldPulseCountsOnce()
     {
@@ -521,6 +596,22 @@ public class ShowTests
         Assert.Equal(Rgb.Black, o[2]);
         show.Manual = null;
         Assert.NotEqual(o[1], show.Render(s, 0.1)[1]);
+    }
+
+    [Fact]
+    public void OutputMenuSetsOnlyItsKeys()
+    {
+        var text = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "rig.json"));
+        var edited = RigFile.SetIn(text, "output", "sacn_universe", 7);
+        edited = RigFile.SetIn(edited, "output", "usb_adapter", "A1B2\"C3");     // added: not in the file yet
+        edited = RigFile.SetIn(edited, "output", "visualizer", false);
+        var rig = Rig.Parse(edited);
+        Assert.Equal(7, rig.Output.SacnUniverse);
+        Assert.Equal("A1B2\"C3", rig.Output.UsbAdapter);
+        Assert.False(rig.Output.Visualizer);
+        Assert.Equal(1, rig.Universe);                                            // a same-named key elsewhere: untouched
+        Assert.Contains("// e.g. 2: also send the result as sACN", edited);      // its comment kept
+        Assert.Contains("\"sacn_universe\": 0,     // e.g. 2", RigFile.SetIn(edited, "output", "sacn_universe", 0));
     }
 
     [Fact]

@@ -1,10 +1,13 @@
-# YARG DMX interpreter
+# Lumenator 5000
 
-A fork of [Nyxyxylyth/YARG_sACN_to_DMX](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX). The original
-copied YARG's Stage Kit lights straight onto 2, 4 or 8 PARs (its README is in
-[README.original.md](README.original.md)). This version *interprets* what YARG sends: each lighting cue
-in the song's VENUE track picks a **look** from `rig.json`, and YARG's beat, keyframe and drum
-triggers drive it.
+A light show for [YARG](https://yarg.in): it *interprets* what YARG sends, so each lighting cue in the
+song's VENUE track picks a **look** from `rig.json`, and YARG's beat, keyframe and drum triggers drive
+it, out to real DMX lights and a browser visualizer. The lighting half of the 5000 series, alongside the
+Chartinator 5000 for charting. Not an official YARG project.
+
+Started from Neal Manson's [YARG_sACN_to_DMX](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX), which
+copies YARG's Stage Kit lights straight onto 2, 4 or 8 PARs (its README is in
+[README.original.md](README.original.md)); the sACN receiver, DMX output and PAR profile began there.
 
 - **The chart says what and when.** Cues, keyframes, blackouts, strobe and fog come from the song.
 - **`rig.json` says how it looks on your lights.** Fixtures, grouping, colours, intensity curves and
@@ -142,6 +145,26 @@ processing, and bitmasks of the notes on drums / guitar / bass / keys. Triggers 
 YARG's `DMXPulseDuration` (60 ms by default), so two of the same within one pulse count as one.
 Spotlights, sing-alongs and camera cuts aren't in YARG's sACN output (only its UDP data stream).
 
+### The data stream (recommended)
+
+YARG can also broadcast a UDP **data stream** (turn on Data Stream in YARG's settings; it goes to
+port 36107, about 88 packets/s). The bridge always listens for it, and while it's arriving it drives
+everything except the Stage Kit LEDs (which only sACN has, for the `stagekit` look); when it stops,
+sACN takes over again within a second. The header shows "YARG data stream" while it's in charge.
+
+Why it's better: every value has its own field, so YARG's fog/strobe writes can't clobber the game
+channels (no channel setup at all); the tempo comes from the chart instead of being measured;
+beats, keyframes and bonus effects are one-off events instead of 60 ms pulses, and quick notes
+between packets are combined, so close hits aren't merged. It also carries pause, the screen (menu,
+song, score), spotlight and sing-along performers, camera cuts and vocal pitch, kept in the state for
+looks to use.
+
+Its quirks: it's undocumented (the layout, datagram version 3, is read from YARG's
+`DataStreamController`, so a YARG update could change it; other versions are ignored and sACN carries
+on). Verse and Chorus arrive as a song section rather than as the cue, so a Verse straight after
+another Verse can't be seen. A song with no lighting cues shows NoCue (the `band` look) until its
+first cue.
+
 ## Status
 
 - Tested: the sACN receiver, decoder, every look, the visualizer stream and live reload, with the
@@ -152,4 +175,5 @@ Spotlights, sing-alongs and camera cuts aren't in YARG's sACN output (only its U
 ## Credits
 
 Neal Manson's [YARG_sACN_to_DMX](https://github.com/Nyxyxylyth/YARG_sACN_to_DMX) (MIT), for the
-idea, the Stage Kit-to-PAR mapping and the PAR profile.
+idea, the Stage Kit-to-PAR mapping and the PAR profile; this project started as a fork of it and keeps
+its history and license (see [LICENSE.txt](LICENSE.txt)).

@@ -1,9 +1,9 @@
-﻿// Reads YARG's sACN lighting data, interprets it with the looks in rig.json (cue -> look; beat,
-// keyframe and drum triggers), and sends the result to DMX: an FTDI USB-DMX cable, sACN, and/or the
-// browser visualizer (fake DMX output). Based on Neal Manson's YARG_sACN_to_DMX, which mapped YARG's
-// Stage Kit lights straight onto 2/4/8 PARs (the "stagekit" look still does).
+﻿// Lumenator 5000: reads YARG's lighting data (its UDP data stream, or sACN), interprets it with the
+// looks in rig.json (cue -> look; beat, keyframe and drum triggers), and sends the result to DMX: an
+// FTDI USB-DMX cable, sACN, and/or the browser visualizer. Started from Neal Manson's YARG_sACN_to_DMX,
+// which mapped YARG's Stage Kit lights straight onto 2/4/8 PARs (the "stagekit" look still does).
 //
-//   YARG_sACN_to_DMX [--rig rig.json] [--sim] [--port 8080] [--no-visualizer]
+//   Lumenator [--rig rig.json] [--sim] [--port 8080] [--no-visualizer]
 //     --sim   fake YARG: a looping demo song sent as real sACN (no game needed)
 
 using System.Diagnostics;
@@ -26,7 +26,7 @@ for (int i = 0; i < args.Length; i++)
         case "--port": port = int.Parse(args[++i]); break;
         case "--no-visualizer": visualizer = false; break;
         default:
-            Console.WriteLine("usage: YARG_sACN_to_DMX [--rig rig.json] [--sim] [--port 8080] [--no-visualizer]");
+            Console.WriteLine("usage: Lumenator [--rig rig.json] [--sim] [--port 8080] [--no-visualizer]");
             return 2;
     }
 }
@@ -45,6 +45,18 @@ var decoder = new YargDecoder(rig.Channels, clock);
 var show = new Show(rig);
 using var receiver = new E131Receiver(rig.Universe, decoder.OnFrame);
 Console.WriteLine($"listening for YARG on sACN universe {rig.Universe}");
+// YARG's UDP data stream, when it's switched on in YARG: tempo, pause, spotlights... and no clashing channels
+DataStreamReceiver? stream = null;
+try
+{
+    stream = new DataStreamReceiver(decoder.OnDataStream);
+    Console.WriteLine($"listening for YARG's data stream on UDP {DataStreamPacket.Port}");
+}
+catch (System.Net.Sockets.SocketException e)
+{
+    Console.WriteLine($"data stream: can't listen on UDP {DataStreamPacket.Port} ({e.Message}); sACN only");
+}
+using var streamOwner = stream;
 using var simulator = sim ? new YargSimulator(rig.Channels, rig.Universe) : null;
 if (simulator != null)
 {
@@ -53,26 +65,48 @@ if (simulator != null)
 }
 
 var outputs = new List<IDmxOutput>();
+var outputProblems = new List<string>();      // shown in the visualizer's output menu
+double usbRetryAt = double.PositiveInfinity;  // a chosen adapter that isn't there is tried again every few s
+bool WantsUsb(OutputConfig o) => o.UsbAdapter.Length > 0 || o.Ftdi;
+string UsbProblem(Exception e) => e is DllNotFoundException or EntryPointNotFoundException
+    ? "USB: FTDI's driver isn't installed (ftd2xx.dll)" : $"USB: {e.Message}";
 void OpenOutputs()
 {
-    foreach (var o in outputs) o.Dispose();
-    outputs.Clear();
-    if (rig.Output.Ftdi)
+    lock (outputs)
     {
-        try { outputs.Add(new FtdiOutput()); }
-        catch (Exception e) when (e is IOException or DllNotFoundException or EntryPointNotFoundException)
+        foreach (var o in outputs) o.Dispose();
+        outputs.Clear();
+        outputProblems.Clear();
+        usbRetryAt = double.PositiveInfinity;
+        if (WantsUsb(rig.Output))
+            TryUsb();
+        if (rig.Output.SacnUniverse != 0)
         {
-            Console.WriteLine($"FTDI: {e.Message} (no DMX cable output)");
+            if (rig.Output.SacnUniverse == rig.Universe)
+                outputProblems.Add($"sACN: can't send on YARG's own universe ({rig.Universe})");
+            else
+                outputs.Add(new SacnOutput(rig.Output.SacnUniverse));
         }
+        Console.WriteLine("outputs: " + (outputs.Count > 0 ? string.Join(", ", outputs.Select(o => o.Name)) : "visualizer only")
+            + string.Concat(outputProblems.Select(p => $" ({p})")));
     }
-    if (rig.Output.SacnUniverse != 0)
+}
+// (with outputs locked) open the chosen USB adapter, or note why not and try again in a few seconds
+bool TryUsb()
+{
+    outputProblems.RemoveAll(p => p.StartsWith("USB:"));
+    try
     {
-        if (rig.Output.SacnUniverse == rig.Universe)
-            Console.WriteLine("sACN output: can't send on YARG's own universe; skipped");
-        else
-            outputs.Add(new SacnOutput(rig.Output.SacnUniverse));
+        outputs.Insert(0, new FtdiOutput(rig.Output.UsbAdapter));
+        usbRetryAt = double.PositiveInfinity;
+        return true;
     }
-    Console.WriteLine("outputs: " + (outputs.Count > 0 ? string.Join(", ", outputs.Select(o => o.Name)) : "visualizer only"));
+    catch (Exception e) when (e is IOException or DllNotFoundException or EntryPointNotFoundException)
+    {
+        outputProblems.Add(UsbProblem(e));
+        usbRetryAt = clock.Elapsed.TotalSeconds + 3;
+        return false;
+    }
 }
 OpenOutputs();
 
@@ -133,6 +167,44 @@ if (viz != null)
         }
     };
     viz.OnManual = bits => show.Manual = bits;
+    viz.OnUsbDevices = () =>
+    {
+        try { return new { ok = true, error = (string?)null, devices = FtdiOutput.Devices().Select(d => new { serial = d.Serial, description = d.Description }) }; }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return new { ok = false, error = (string?)"FTDI's driver isn't installed (ftd2xx.dll)", devices = Enumerable.Empty<object>().Select(_ => new { serial = "", description = "" }) };
+        }
+    };
+    // the output menu: saved into rig.json's "output" section, so the reload below opens them
+    viz.OnOutputs = body =>
+    {
+        var o = System.Text.Json.JsonDocument.Parse(body).RootElement;
+        bool preview = o.GetProperty("visualizer").GetBoolean();
+        string usb = o.GetProperty("usb").GetString() ?? "";
+        int sacn = o.GetProperty("sacn").GetInt32();
+        if (sacn is < 0 or > 63999)
+            return "sACN universe is 1 to 63999";
+        if (sacn != 0 && sacn == rig.Universe)
+            return $"universe {sacn} is the one YARG sends on; pick another";
+        lock (rigWrite)
+        {
+            try
+            {
+                var text = File.ReadAllText(rigPath);
+                text = RigFile.SetIn(text, "output", "visualizer", preview);
+                text = RigFile.SetIn(text, "output", "usb_adapter", usb);
+                text = RigFile.SetIn(text, "output", "ftdi", false);          // the adapter is chosen by name now
+                text = RigFile.SetIn(text, "output", "sacn_universe", sacn);
+                Rig.Parse(text);
+                File.WriteAllText(rigPath, text);
+                return null;
+            }
+            catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or FormatException)
+            {
+                return e.Message;
+            }
+        }
+    };
 }
 
 // tuning: save rig.json and it's picked up (a broken file keeps the last good rig)
@@ -161,7 +233,8 @@ while (!stop.IsCancellationRequested)
         try
         {
             var next = Rig.Load(rigPath);
-            bool outputsChanged = next.Output.Ftdi != rig.Output.Ftdi || next.Output.SacnUniverse != rig.Output.SacnUniverse;
+            bool outputsChanged = next.Output.Ftdi != rig.Output.Ftdi || next.Output.UsbAdapter != rig.Output.UsbAdapter
+                || next.Output.SacnUniverse != rig.Output.SacnUniverse || next.Universe != rig.Universe;
             rig = next;
             show.Rig = rig;
             decoder.Map = rig.Channels;
@@ -176,6 +249,9 @@ while (!stop.IsCancellationRequested)
     }
 
     double now = clock.Elapsed.TotalSeconds;
+    if (now >= usbRetryAt && WantsUsb(rig.Output))
+        lock (outputs)
+            if (TryUsb()) Console.WriteLine($"outputs: {outputs[0].Name} connected");
     var state = decoder.Snapshot();
     var colours = show.Render(state, now);
     bool quiet = now - state.LastFrameAt > 3;
@@ -196,16 +272,29 @@ while (!stop.IsCancellationRequested)
             master = rig.Master,
             manual = show.Manual,
             profiles = rig.Profiles.ToDictionary(p => p.Key, p => p.Value.Width),
-            colours = shown.Select(c => new[] { (int)Math.Round(c.R * 255), (int)Math.Round(c.G * 255), (int)Math.Round(c.B * 255) }),
-            input = quiet ? "waiting" : receiver.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
+            colours = rig.Output.Visualizer
+                ? shown.Select(c => new[] { (int)Math.Round(c.R * 255), (int)Math.Round(c.G * 255), (int)Math.Round(c.B * 255) })
+                : null,
+            input = quiet ? "waiting" : state.Source == "data stream" ? "YARG data stream"
+                : receiver.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
+            paused = state.Paused,
             cue = state.Cue.ToString(),
             look = show.LookName,
             effectDoes = rig.PostProcessing.TryGetValue(state.PostProcessing.ToString(), out var fx) ? Describe(fx) : "",
             strobe = state.Strobe.ToString(),
             fog = state.Fog,
             effect = state.PostProcessing.ToString(),
-            bpm = now - state.LastAt[(int)Trigger.Beat] < 3 ? 60 / state.BeatPeriod : 0,
-            outputs = outputs.Count > 0 ? string.Join(", ", outputs.Select(o => o.Name)) : "visualizer only",
+            bpm = state.Bpm > 0 ? state.Bpm : now - state.LastAt[(int)Trigger.Beat] < 3 ? 60 / state.BeatPeriod : 0,
+            outputs = string.Join(", ", (rig.Output.Visualizer ? new[] { "visualizer" } : Array.Empty<string>())
+                .Concat(outputs.Select(o => o.Name)).DefaultIfEmpty("none")),
+            output = new
+            {
+                visualizer = rig.Output.Visualizer,
+                usb = rig.Output.UsbAdapter.Length > 0 ? rig.Output.UsbAdapter : rig.Output.Ftdi ? "(first found)" : "",
+                sacn = rig.Output.SacnUniverse,
+                yargUniverse = rig.Universe,
+                problems = outputProblems.ToArray(),
+            },
         });
     }
     try { await Task.Delay(frameMs, stop.Token); }

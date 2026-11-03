@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>YargDmx</RootNamespace>
+    <AssemblyName>Lumenator</AssemblyName>
+    <Product>Lumenator 5000</Product>
   </PropertyGroup>
   <ItemGroup>
     <!-- the tests are their own project -->

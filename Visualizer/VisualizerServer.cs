@@ -27,6 +27,10 @@ public sealed class VisualizerServer : IDisposable
     /// <summary>POST /api/manual: each light's colour bits (red 1, green 2, blue 4), or null to give the
     /// lights back to YARG.</summary>
     public Action<int[]?>? OnManual { get; set; }
+    /// <summary>POST /api/outputs: the output settings (JSON); returns an error message, or null when saved.</summary>
+    public Func<string, string?>? OnOutputs { get; set; }
+    /// <summary>POST /api/usb: the USB-DMX adapters plugged in, as the reply.</summary>
+    public Func<object>? OnUsbDevices { get; set; }
 
     public VisualizerServer(int port)
     {
@@ -79,6 +83,7 @@ public sealed class VisualizerServer : IDisposable
     {
         var req = ctx.Request;
         string? error;
+        object? reply = null;                       // a reply with data, instead of just { ok, error }
         int status = 400;
         var origin = req.Headers["Origin"];
         if (!req.IsLocal || req.HttpMethod != "POST" || req.ContentType?.StartsWith("application/json") != true ||
@@ -106,6 +111,13 @@ public sealed class VisualizerServer : IDisposable
                     case "/api/master":
                         error = OnMaster?.Invoke(JsonDocument.Parse(body).RootElement.GetProperty("value").GetDouble());
                         break;
+                    case "/api/outputs":
+                        error = OnOutputs?.Invoke(body);
+                        break;
+                    case "/api/usb":
+                        reply = OnUsbDevices?.Invoke();
+                        error = null;
+                        break;
                     case "/api/manual":
                         var bits = JsonDocument.Parse(body).RootElement.GetProperty("lights");
                         OnManual?.Invoke(bits.ValueKind == JsonValueKind.Null ? null
@@ -123,7 +135,8 @@ public sealed class VisualizerServer : IDisposable
                 error = "bad request: " + e.Message;
             }
         }
-        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(error == null ? new { ok = true, error = (string?)null } : new { ok = false, error = (string?)error }));
+        var bytes = Encoding.UTF8.GetBytes(error == null && reply != null ? JsonSerializer.Serialize(reply)
+            : JsonSerializer.Serialize(error == null ? new { ok = true, error = (string?)null } : new { ok = false, error = (string?)error }));
         var r = ctx.Response;
         r.StatusCode = error == null ? 200 : status;
         r.ContentType = "application/json";

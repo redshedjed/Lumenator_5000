@@ -71,7 +71,7 @@ public interface IDmxOutput : IDisposable
 
 public sealed class SacnOutput(ushort universe) : IDmxOutput
 {
-    readonly E131Sender _sender = new("YARG DMX interpreter");
+    readonly E131Sender _sender = new("Lumenator 5000");
     public string Name => $"sACN universe {universe}";
     public void Send(byte[] u) => _sender.Send(universe, u);
     public void Dispose() => _sender.Dispose();
@@ -101,12 +101,38 @@ public sealed class FtdiOutput : IDmxOutput
     readonly Thread _thread;
     volatile bool _run = true;
 
-    public string Name => "FTDI USB-DMX";
+    [DllImport("ftd2xx.dll", CharSet = CharSet.Ansi)] static extern uint FT_OpenEx(string serial, uint flags, out IntPtr handle);
+    [DllImport("ftd2xx.dll")] static extern uint FT_CreateDeviceInfoList(out uint count);
+    [DllImport("ftd2xx.dll")] static extern uint FT_GetDeviceInfoDetail(uint index, out uint flags, out uint type,
+        out uint id, out uint location, byte[] serial, byte[] description, out IntPtr handle);
+    const uint OpenBySerialNumber = 1;
 
-    public FtdiOutput(int index = 0)
+    public string Name { get; }
+
+    /// <summary>The FTDI devices plugged in (serial number, description). Throws DllNotFoundException
+    /// without FTDI's driver.</summary>
+    public static List<(string Serial, string Description)> Devices()
     {
-        if (FT_Open(index, out _h) != Ok)
-            throw new IOException($"no FTDI device {index}");
+        var list = new List<(string, string)>();
+        if (FT_CreateDeviceInfoList(out var count) != Ok)
+            return list;
+        static string Text(byte[] b) => System.Text.Encoding.ASCII.GetString(b, 0, Math.Max(0, Array.IndexOf(b, (byte)0) is var n and >= 0 ? n : b.Length));
+        for (uint i = 0; i < count; i++)
+        {
+            byte[] serial = new byte[16], description = new byte[64];
+            if (FT_GetDeviceInfoDetail(i, out _, out _, out _, out _, serial, description, out _) == Ok)
+                list.Add((Text(serial), Text(description)));
+        }
+        return list;
+    }
+
+    /// <summary>The cable with this serial number, or the first one found ("").</summary>
+    public FtdiOutput(string serial = "")
+    {
+        uint status = serial.Length > 0 ? FT_OpenEx(serial, OpenBySerialNumber, out _h) : FT_Open(0, out _h);
+        if (status != Ok)
+            throw new IOException(serial.Length > 0 ? $"USB adapter {serial} isn't plugged in (or is in use)" : "no USB-DMX adapter found");
+        Name = serial.Length > 0 ? $"USB {serial}" : "USB-DMX";
         FT_ResetDevice(_h);
         FT_SetDivisor(_h, 12);                    // 3 MHz / 12 = 250 kbaud
         FT_SetDataCharacteristics(_h, 8, 2, 0);   // 8 bits, 2 stop bits, no parity

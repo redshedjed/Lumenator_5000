@@ -97,8 +97,23 @@ public sealed class YargState
     public double CueSince;
     /// <summary><see cref="Counts"/> as they were when the current cue began.</summary>
     public long[] CountsAtCue = new long[Enum.GetValues<Trigger>().Length];
-    public double BeatPeriod = 60.0 / 120;       // seconds, from the beatline
+    public double BeatPeriod = 60.0 / 120;       // seconds, from the beatline (or the data stream's tempo)
     public double LastFrameAt = double.NegativeInfinity;
+    /// <summary>"sACN", or "data stream" while YARG's UDP data stream is arriving (it then drives
+    /// everything except the Stage Kit LEDs, which only sACN has).</summary>
+    public string Source = "sACN";
+
+    // only from the data stream
+    /// <summary>The chart's tempo, 0 if not known.</summary>
+    public double Bpm;
+    public bool Paused;
+    public DataStreamPacket.Scenes Scene;
+    /// <summary>Performer bits (guitar 1, bass 2, drums 4, vocals 8, keys 16) in a spotlight / singing along.</summary>
+    public byte Spotlight, Singalong;
+    /// <summary>YARG.Core CameraCutSubject index of the current camera cut.</summary>
+    public byte CameraSubject;
+    /// <summary>The lead vocal's pitch (MIDI note number), 0 between notes.</summary>
+    public float Vocal;
 
     public long Count(Trigger t) => Counts[(int)t];
     public double Since(Trigger t, double now) => now - LastAt[(int)t];
@@ -158,19 +173,25 @@ public sealed class YargDecoder
             for (int c = 0; c < 4; c++)
                 for (int i = 0; i < 8; i++)
                     s.Leds[c, i] = i < colours[c].Length && At(f, colours[c][i]) != 0;
+            s.LastFrameAt = now;
+            if (StreamActive(now))
+            {
+                _prev = f;                              // the data stream has the rest
+                return;
+            }
+            if (s.Source != "sACN")                     // the data stream stopped: forget what only it knew
+            {
+                s.Source = "sACN";
+                (s.Bpm, s.Paused, s.Spotlight, s.Singalong, s.Vocal) = (0, false, 0, 0, 0);
+            }
             s.Fog = At(f, m.Fog) != 0;
             s.Strobe = At(f, m.Strobe) switch
             {
                 0 => Strobe.Off, <= 64 => Strobe.Slow, <= 127 => Strobe.Medium, <= 191 => Strobe.Fast, _ => Strobe.Fastest,
             };
             var cue = At(f, m.Cue);
-            if (Enum.IsDefined(typeof(Cue), cue) && (Cue)cue != s.Cue)
-            {
-                s.Cue = (Cue)cue;
-                s.CueSince = now;
-                Fire(s, Trigger.Cue, now);
-                s.CountsAtCue = (long[])s.Counts.Clone();
-            }
+            if (Enum.IsDefined(typeof(Cue), cue))
+                SetCue(s, (Cue)cue, now);
             if (At(f, m.PostProcessing) is var pp && Enum.IsDefined(typeof(PostProcessing), pp))
                 s.PostProcessing = (PostProcessing)pp;
 
@@ -178,46 +199,149 @@ public sealed class YargDecoder
             // address (YARG's defaults) can't fire them
             var beat = Rising(f, m.Beatline);
             if (beat is 1 or 11)
-            {
-                if (now - _lastBeat is > 0.15 and < 2.0)
-                    s.BeatPeriod = 0.7 * s.BeatPeriod + 0.3 * (now - _lastBeat);
-                _lastBeat = now;
-                Fire(s, Trigger.Beat, now);
-                if (beat == 1)          // BeatlineType.Measure: the bar line
-                    Fire(s, Trigger.Downbeat, now);
-            }
+                Beat(s, measure: beat == 1, now);
             if (Rising(f, m.Keyframe) is var kf and (3 or 13 or 23))
-            {
-                s.KeyframePrev = s.KeyframeStep;
-                s.KeyframeStep = kf switch { 3 => s.KeyframeStep + 1, 13 => s.KeyframeStep - 1, _ => 0 };
-                Fire(s, Trigger.Keyframe, now);
-            }
+                Keyframe(s, kf switch { 3 => 1, 13 => -1, _ => 0 }, now);
             if (Rising(f, m.Bonus) == 2)
                 Fire(s, Trigger.Bonus, now);
 
-            var drums = (Drum)At(f, m.Drums);
-            var hit = drums & ~(Drum)At(_prev, m.Drums);
-            s.DrumsHeld = drums;
-            if (hit.HasFlag(Drum.Red)) Fire(s, Trigger.Snare, now);
-            if (hit.HasFlag(Drum.Kick)) Fire(s, Trigger.Kick, now);
-            if ((hit & (Drum.YellowPad | Drum.BluePad | Drum.GreenPad)) != 0) Fire(s, Trigger.Tom, now);
-            if ((hit & (Drum.YellowCymbal | Drum.BlueCymbal | Drum.GreenCymbal)) != 0) Fire(s, Trigger.Cymbal, now);
-            if (hit != 0) Fire(s, Trigger.Drums, now);
-            if (At(f, m.Guitar) is var g and not 0 && g != At(_prev, m.Guitar)) Fire(s, Trigger.Guitar, now);
-            if (At(f, m.Bass) is var b and not 0 && b != At(_prev, m.Bass)) Fire(s, Trigger.Bass, now);
-            if (At(f, m.Keys) is var k and not 0 && k != At(_prev, m.Keys)) Fire(s, Trigger.Keys, now);
+            Notes(s, At(f, m.Guitar), At(f, m.Bass), At(f, m.Keys), At(f, m.Drums), now);
+            _prev = f;
+        }
+    }
 
-            int[] noteChannels = { m.Guitar, m.Bass, m.Keys, m.Drums };
-            for (int i = 0; i < 4; i++)
+    // --- YARG's UDP data stream: while it's arriving it drives everything but the Stage Kit LEDs
+    double _streamAt = double.NegativeInfinity;
+    byte _lastLighting = byte.MaxValue, _lastSection = byte.MaxValue;
+    DataStreamPacket.Scenes? _lastScene;
+
+    bool StreamActive(double now) => now - _streamAt < 1.0;
+
+    public void OnDataStream(DataStreamPacket p)
+    {
+        double now = _clock.Elapsed.TotalSeconds;
+        lock (_lock)
+        {
+            var s = _state;
+            if (!StreamActive(now))
+                _lastScene = null;                      // (re)joining: sACN may have moved the cue meanwhile
+            _streamAt = now;
+            s.LastFrameAt = now;
+            s.Source = "data stream";
+            s.Fog = p.Fog;
+            s.Strobe = DataStreamPacket.StrobeFor(p.Strobe);
+            s.PostProcessing = DataStreamPacket.PostProcessingFor(p.PostProcessing);
+            s.Paused = p.IsPaused;
+            s.Scene = (DataStreamPacket.Scenes)p.Scene;
+            s.Spotlight = p.Spotlight;
+            s.Singalong = p.Singalong;
+            s.CameraSubject = p.CameraSubject;
+            s.Vocal = p.Vocal;
+            if (p.Bpm is > 20 and < 400)
             {
-                s.Held[i] = At(f, noteChannels[i]);
-                for (int bit = 0; bit < 8; bit++)
-                    if ((s.Held[i] & (1 << bit)) != 0)
-                        s.HeldAt[i, bit] = now;
+                s.Bpm = p.Bpm;
+                s.BeatPeriod = 60.0 / p.Bpm;
             }
 
-            s.LastFrameAt = now;
-            _prev = f;
+            // the cue: the screen outside a song; in one, the latest lighting cue or song section (YARG
+            // sends Verse and Chorus as the section, not the cue). A song that starts while we listen is
+            // NoCue until its chart says otherwise (the stream still holds the last song's cue); one
+            // already playing when we start listening takes the cue it's on.
+            bool inSong = s.Scene is DataStreamPacket.Scenes.Gameplay or DataStreamPacket.Scenes.Practice;
+            if (s.Scene != _lastScene)
+            {
+                bool joinedMidSong = _lastScene == null && inSong;
+                _lastScene = s.Scene;
+                (_lastLighting, _lastSection) = joinedMidSong ? (byte.MaxValue, byte.MaxValue) : (p.LightingCue, p.SongSection);
+                SetCue(s, s.Scene switch
+                {
+                    DataStreamPacket.Scenes.Menu or DataStreamPacket.Scenes.Calibration => Cue.Menu,
+                    DataStreamPacket.Scenes.Score => Cue.Score,
+                    _ => Cue.NoCue,
+                }, now);
+            }
+            if (inSong)
+            {
+                if (p.LightingCue != _lastLighting)
+                {
+                    _lastLighting = p.LightingCue;
+                    if (DataStreamPacket.CueFor(p.LightingCue) is { } cue)
+                        SetCue(s, cue, now);
+                }
+                if (p.SongSection != _lastSection)
+                {
+                    _lastSection = p.SongSection;
+                    if (DataStreamPacket.CueFor(p.SongSection) is Cue.Verse or Cue.Chorus)
+                        SetCue(s, DataStreamPacket.CueFor(p.SongSection)!.Value, now);
+                }
+            }
+
+            if (p.Beat is 0 or 1)                       // a measure or strong beatline (weak ones: not on sACN either)
+                Beat(s, measure: p.Beat == 0, now);
+            switch (DataStreamPacket.Lighting(p.Keyframe))
+            {
+                case "KeyframeNext": Keyframe(s, 1, now); break;
+                case "KeyframePrevious": Keyframe(s, -1, now); break;
+                case "KeyframeFirst": Keyframe(s, 0, now); break;
+            }
+            if (p.Bonus)
+                Fire(s, Trigger.Bonus, now);
+            Notes(s, p.Guitar, p.Bass, p.Keys, p.Drums, now);
+        }
+    }
+
+    // --- shared by both inputs
+
+    static void SetCue(YargState s, Cue cue, double now)
+    {
+        if (cue == s.Cue)
+            return;
+        s.Cue = cue;
+        s.CueSince = now;
+        Fire(s, Trigger.Cue, now);
+        s.CountsAtCue = (long[])s.Counts.Clone();
+    }
+
+    void Beat(YargState s, bool measure, double now)
+    {
+        // sACN has no tempo, so it's measured from the beatlines; the data stream says it
+        if (s.Bpm == 0 && now - _lastBeat is > 0.15 and < 2.0)
+            s.BeatPeriod = 0.7 * s.BeatPeriod + 0.3 * (now - _lastBeat);
+        _lastBeat = now;
+        Fire(s, Trigger.Beat, now);
+        if (measure)                // BeatlineType.Measure: the bar line
+            Fire(s, Trigger.Downbeat, now);
+    }
+
+    static void Keyframe(YargState s, int step, double now)
+    {
+        s.KeyframePrev = s.KeyframeStep;
+        s.KeyframeStep = step == 0 ? 0 : s.KeyframeStep + step;
+        Fire(s, Trigger.Keyframe, now);
+    }
+
+    /// <summary>Notes held now (guitar / bass / keys / drums bits); hits are the bits that weren't held before.</summary>
+    static void Notes(YargState s, byte guitar, byte bass, byte keys, byte drumBits, double now)
+    {
+        var drums = (Drum)drumBits;
+        var hit = drums & ~(Drum)s.Held[(int)Instrument.Drums];
+        s.DrumsHeld = drums;
+        if (hit.HasFlag(Drum.Red)) Fire(s, Trigger.Snare, now);
+        if (hit.HasFlag(Drum.Kick)) Fire(s, Trigger.Kick, now);
+        if ((hit & (Drum.YellowPad | Drum.BluePad | Drum.GreenPad)) != 0) Fire(s, Trigger.Tom, now);
+        if ((hit & (Drum.YellowCymbal | Drum.BlueCymbal | Drum.GreenCymbal)) != 0) Fire(s, Trigger.Cymbal, now);
+        if (hit != 0) Fire(s, Trigger.Drums, now);
+        if (guitar != 0 && guitar != s.Held[(int)Instrument.Guitar]) Fire(s, Trigger.Guitar, now);
+        if (bass != 0 && bass != s.Held[(int)Instrument.Bass]) Fire(s, Trigger.Bass, now);
+        if (keys != 0 && keys != s.Held[(int)Instrument.Keys]) Fire(s, Trigger.Keys, now);
+
+        byte[] held = { guitar, bass, keys, drumBits };      // Instrument order
+        for (int i = 0; i < 4; i++)
+        {
+            s.Held[i] = held[i];
+            for (int bit = 0; bit < 8; bit++)
+                if ((held[i] & (1 << bit)) != 0)
+                    s.HeldAt[i, bit] = now;
         }
     }
 
