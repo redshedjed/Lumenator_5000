@@ -51,6 +51,25 @@ public static class RigFile
         return text[..start] + v + text[end..];
     }
 
+    /// <summary><paramref name="text"/> with the top-level string <paramref name="key"/> set (added at the
+    /// top of the object if it isn't there).</summary>
+    public static string SetText(string text, string key, string value)
+    {
+        var literal = JsonSerializer.Serialize(value);
+        var (start, _) = FindValue(text, key);
+        if (start < 0)
+        {
+            int open = SkipToRoot(text);
+            return text[..(open + 1)] + $"\n  \"{key}\": {literal}," + text[(open + 1)..];
+        }
+        if (text[start] != '"')
+            throw new InvalidDataException($"rig.json: \"{key}\" isn't text");
+        int end = start + 1;
+        for (; end < text.Length && text[end] != '"'; end++)
+            if (text[end] == '\\') end++;
+        return text[..start] + literal + text[(end + 1)..];
+    }
+
     /// <summary><paramref name="text"/> with <c>"object": { "key": value }</c> set (a top-level object;
     /// the key is added at its top if it isn't there). <paramref name="value"/> is a string, number or bool.</summary>
     public static string SetIn(string text, string obj, string key, object value)

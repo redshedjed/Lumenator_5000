@@ -167,6 +167,8 @@ public sealed class OutputConfig
 
 public sealed class Rig
 {
+    /// <summary>Where the show comes from: yarg | sim (the demo song) | reaper (a chart being edited).</summary>
+    public string Input { get; set; } = "yarg";
     public ushort Universe { get; set; } = 1;
     public ChannelMap Channels { get; set; } = new();
     public OutputConfig Output { get; set; } = new();
@@ -211,6 +213,8 @@ public sealed class Rig
     {
         if (Fixtures.Count == 0)
             throw new InvalidDataException("no fixtures");
+        if (Input is not ("yarg" or "sim" or "reaper"))
+            throw new InvalidDataException($"input \"{Input}\" (yarg, sim or reaper)");
         Looks.TryAdd("stagekit", new Look());
         foreach (var (name, p) in Profiles)
             foreach (var (ch, colour) in p.Copy)

@@ -28,7 +28,14 @@ dotnet test tests/Lumenator.Tests
 ```
 
 Options: `--rig path/to/rig.json` (default: `rig.json` in the current folder), `--port 8080`,
-`--no-visualizer`, `--reaper` (below).
+`--no-visualizer`, `--reaper` (below). The visualizer's **input** menu switches between YARG, REAPER and the
+demo song while it runs, and remembers the choice in `rig.json`.
+
+To build it as a standalone program that doesn't need .NET installed (put `rig.json` beside the `.exe`):
+
+```
+dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+```
 
 In YARG: Settings > All Settings > Lighting > **Enable DMX output**, universe 1 (`universe` in
 `rig.json`). YARG sends multicast on the same PC, which this picks up.
@@ -45,14 +52,20 @@ post-processing 106, guitar 107, bass 108, keys 109, and put the same numbers un
 
 ## Preview a chart from REAPER
 
-`--reaper` takes the show from a chart you're editing in REAPER instead of from YARG, so you can see
-your lights as you work, including edits you haven't saved.
+The **REAPER** input takes the show from a chart you're editing instead of from YARG, so you can see your
+lights as you work, including edits you haven't saved. Pick it from the **input** menu at the top of the
+visualizer (or start with `--reaper`), which walks you through what it needs and shows what's done:
 
-1. In REAPER: Options > Preferences > Control/OSC/web > Add. Control surface mode **OSC**, pattern config
-   Default, mode **Configure device IP + local port**, device IP `127.0.0.1`, device port `9000`. Once only.
-2. Open the project, then run [reaper/lumenator_export.lua](reaper/lumenator_export.lua) from REAPER's
-   Actions list (ReaScript: Run, or New action > Load ReaScript). It only reads the project.
-3. `dotnet run -- --reaper`, and press play in REAPER.
+1. **Chart script.** The **Set up** button copies a small read-only script (built into Lumenator) to REAPER's
+   Scripts folder and adds a line to `__startup.lua`, so it starts with REAPER; restart REAPER after. It idles
+   unless the open project has a VENUE track. **Remove** takes it out again and leaves the rest of
+   `__startup.lua` alone. Or run [reaper/lumenator_export.lua](reaper/lumenator_export.lua) yourself from
+   REAPER's Actions list.
+2. **Position.** In REAPER: Options > Preferences > Control/OSC/web > Add. Control surface mode **OSC**,
+   pattern config Default, a **Mode** that only sends, device IP `127.0.0.1`, device port `9000`. Lumenator only
+   reads this setting: REAPER owns its settings file. Avoid a mode with a local port: REAPER would then accept
+   commands from the network with no password, and the menu warns if it's set that way.
+3. Press play in REAPER.
 
 It's an editor's preview, not the whole show:
 
@@ -69,6 +82,7 @@ It's an editor's preview, not the whole show:
 
 ## rig.json
 
+- `input`: where the show comes from: `yarg` (default), `reaper` or `sim`.
 - `fixtures`: name, DMX `address`, `profile`, and optional `x`/`y` for the visualizer (0-1).
   Listed left to right; "halves" and "alternate" go by this order.
 - `profiles`: channel offsets per fixture type (`dimmer`, `red`, `green`, `blue`, optional `white`,

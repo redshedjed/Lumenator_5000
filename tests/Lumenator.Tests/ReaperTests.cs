@@ -251,14 +251,141 @@ public class ReaperTests
     }
 
     [Fact]
-    public void SaysWhenTheExportScriptIsntRunning()
+    public void WithoutALiveChartItSaysSoAndPlaysNothing()
     {
-        var r = new Rehearsal(ChartJson(""));
+        var r = new Rehearsal(ChartJson(string.Join(",", Text(1, "[lighting (frenzy)]"), Text(3, "[lighting (stomp)]"))));
         r.Play();
+        r.PlayTo(0, 2);
         Assert.Equal("REAPER", r.State.Source);
-        r.Player.SetChartAlive(false);
-        r.Player.Tick(r.Now);
-        Assert.Contains("lumenator_export.lua", r.State.Source);
+        Assert.Equal(Cue.Frenzy, r.State.Cue);
+
+        r.Player.SetChartAlive(false);                      // the script stopped, or this project has no VENUE
+        r.PlayTo(2, 4);
+        Assert.Equal("REAPER: no chart", r.State.Source);
+        Assert.True(r.State.Waiting);
+        Assert.Equal(Cue.NoCue, r.State.Cue);               // that chart may not be this project's
+    }
+
+    static string TempReaper()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"reaper-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "reaper.ini"), "[reaper]\n");
+        return folder;
+    }
+
+    [Fact]
+    public void SetupInstallsTheBuiltInScriptAndRemovesItCleanly()
+    {
+        var folder = TempReaper();
+        try
+        {
+            var setup = new ReaperSetup(folder);
+            Assert.True(setup.ReaperFound);
+            Assert.False(setup.Installed);
+
+            setup.Install();
+            Assert.True(setup.Installed);
+            var script = Path.Combine(folder, "Scripts", "lumenator_export.lua");
+            var startup = Path.Combine(folder, "Scripts", "__startup.lua");
+            Assert.Equal(ReaperSetup.Script, File.ReadAllText(script));
+            Assert.Contains("MIDI_GetTextSysexEvt", ReaperSetup.Script);
+
+            setup.Install();                                // twice is the same as once
+            Assert.Single(File.ReadAllLines(startup));
+
+            setup.Remove();
+            Assert.False(setup.Installed);
+            Assert.False(File.Exists(script));
+            Assert.False(File.Exists(startup));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public void SetupLeavesYourOwnStartupScriptAlone()
+    {
+        var folder = TempReaper();
+        try
+        {
+            var startup = Path.Combine(folder, "Scripts", "__startup.lua");
+            Directory.CreateDirectory(Path.GetDirectoryName(startup)!);
+            File.WriteAllText(startup, "-- mine, with no newline at the end");
+            var setup = new ReaperSetup(folder);
+
+            setup.Install();
+            Assert.True(setup.Installed);
+            Assert.StartsWith("-- mine, with no newline at the end\n", File.ReadAllText(startup));
+
+            setup.Remove();
+            Assert.Equal(new[] { "-- mine, with no newline at the end" }, File.ReadAllLines(startup));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public void SetupRefreshesOnlyAnInstalledScript()
+    {
+        var folder = TempReaper();
+        try
+        {
+            var setup = new ReaperSetup(folder);
+            setup.Refresh();
+            Assert.False(Directory.Exists(Path.Combine(folder, "Scripts")));   // never installed: left alone
+
+            setup.Install();
+            var script = Path.Combine(folder, "Scripts", "lumenator_export.lua");
+            File.WriteAllText(script, "-- an older version");
+            setup.Refresh();
+            Assert.Equal(ReaperSetup.Script, File.ReadAllText(script));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public void SetupFailsClearlyWithoutReaper()
+    {
+        var setup = new ReaperSetup(Path.Combine(Path.GetTempPath(), $"none-{Guid.NewGuid():N}"));
+        Assert.False(setup.ReaperFound);
+        Assert.Equal((false, false), setup.Osc());
+        Assert.Throws<IOException>(setup.Install);
+    }
+
+    [Theory]
+    [InlineData("csurf_0=OSC \"Reaper\" 3 8000 \"127.0.0.1\" 9000 1024 10 \"\"", true, true)]   // also listens
+    [InlineData("csurf_0=OSC \"Reaper\" 1 0 \"127.0.0.1\" 9000 1024 10 \"\"", true, false)]
+    [InlineData("csurf_0=OSC \"Reaper\" 3 8000 \"192.168.1.5\" 9000 1024 10 \"\"", false, false)]  // another device
+    [InlineData("csurf_0=OSC \"Reaper\" 3 8000 \"127.0.0.1\" 9001 1024 10 \"\"", false, false)]    // another port
+    [InlineData("csurf_0=HTTP 0 9000 '' 'index.html' 0 ''", false, false)]                         // the web interface
+    public void SetupReadsREAPERsOscSetting(string line, bool sends, bool acceptsCommands)
+    {
+        var folder = TempReaper();
+        try
+        {
+            File.WriteAllText(Path.Combine(folder, "reaper.ini"), $"[reaper]\ncsurf_cnt=1\n{line}\n");
+            Assert.Equal((sends, acceptsCommands), new ReaperSetup(folder).Osc());
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public void RigFileSetsTheInputAndARigRejectsAnUnknownOne()
+    {
+        const string rig = """
+            {
+              // comment stays
+              "profiles": { "p": {} },
+              "fixtures": [ { "name": "a", "address": 1, "profile": "p" } ]
+            }
+            """;
+        Assert.Equal("yarg", Rig.Parse(rig).Input);
+        var added = RigFile.SetText(rig, "input", "reaper");
+        Assert.Equal("reaper", Rig.Parse(added).Input);
+        Assert.Contains("// comment stays", added);
+        var changed = RigFile.SetText(added, "input", "sim");
+        Assert.Equal("sim", Rig.Parse(changed).Input);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(changed, "\"input\""));
+        Assert.Throws<InvalidDataException>(() => Rig.Parse(RigFile.SetText(rig, "input", "midi")));
     }
 
     static Rig TwoLights() => Rig.Parse("""

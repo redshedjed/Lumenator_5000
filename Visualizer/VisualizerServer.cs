@@ -31,6 +31,10 @@ public sealed class VisualizerServer : IDisposable
     public Func<string, string?>? OnOutputs { get; set; }
     /// <summary>POST /api/usb: the USB-DMX adapters plugged in, as the reply.</summary>
     public Func<object>? OnUsbDevices { get; set; }
+    /// <summary>POST /api/input: the input to use (yarg, sim or reaper); returns an error message, or null when saved.</summary>
+    public Func<string, string?>? OnInput { get; set; }
+    /// <summary>POST /api/reaper: "status", "install" or "remove"; REAPER's setup state as the reply.</summary>
+    public Func<string, object>? OnReaper { get; set; }
 
     public VisualizerServer(int port)
     {
@@ -116,6 +120,13 @@ public sealed class VisualizerServer : IDisposable
                         break;
                     case "/api/usb":
                         reply = OnUsbDevices?.Invoke();
+                        error = null;
+                        break;
+                    case "/api/input":
+                        error = OnInput?.Invoke(JsonDocument.Parse(body).RootElement.GetProperty("input").GetString() ?? "");
+                        break;
+                    case "/api/reaper":
+                        reply = OnReaper?.Invoke(JsonDocument.Parse(body).RootElement.GetProperty("action").GetString() ?? "");
                         error = null;
                         break;
                     case "/api/manual":

@@ -12,6 +12,7 @@
     <!-- the tests are their own project -->
     <Compile Remove="tests/**" />
     <EmbeddedResource Include="Visualizer/index.html" LogicalName="index.html" />
+    <EmbeddedResource Include="reaper/lumenator_export.lua" LogicalName="lumenator_export.lua" />
     <None Update="rig.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

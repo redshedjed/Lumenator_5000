@@ -206,10 +206,16 @@ public sealed class ReaperPlayer
         }
     }
 
-    /// <summary>False when the export script has stopped refreshing the chart.</summary>
+    /// <summary>False when the export script has stopped refreshing the chart (it isn't running, or the open
+    /// project has no VENUE track): the chart can't be trusted to be the one that's open, so it's not played.</summary>
     public void SetChartAlive(bool alive)
     {
-        lock (_lock) _chartAlive = alive;
+        lock (_lock)
+        {
+            if (_chartAlive && !alive)
+                _reset = true;
+            _chartAlive = alive;
+        }
     }
 
     /// <summary>The messages of one OSC packet, together: pausing arrives as /pause and /play at once.</summary>
@@ -277,7 +283,7 @@ public sealed class ReaperPlayer
                 (_reset, _wrap, _inclusive) = (false, false, true);
                 _pos = pos;
             }
-            var chart = _chart;
+            var chart = _chartAlive ? _chart : null;
             if (chart != null && Playing && _moving)
             {
                 if (_wrap)
@@ -301,8 +307,7 @@ public sealed class ReaperPlayer
             }
             if (chart != null)
                 bpm = chart.BpmAt(pos);
-            source = chart == null || !_chartAlive ? "REAPER: run reaper/lumenator_export.lua"
-                : stopped ? "REAPER: stopped" : "REAPER";
+            source = chart == null ? "REAPER: no chart" : stopped ? "REAPER: stopped" : "REAPER";
         }
         _decoder.OnChart(now, source, reset, paused, bpm, events, held, struck);
     }
@@ -393,6 +398,8 @@ public sealed class ReaperInput : IDisposable
 
     /// <summary>The port it ended up on (given 0, any free one).</summary>
     public int Port => ((IPEndPoint)_udp.Client.LocalEndPoint!).Port;
+    /// <summary>The export script is running and has a chart for the open project.</summary>
+    public bool ChartAlive { get; private set; }
 
     public ReaperInput(YargDecoder decoder, Stopwatch clock, int port = OscPort, string? chartPath = null)
     {
@@ -439,7 +446,8 @@ public sealed class ReaperInput : IDisposable
         try
         {
             var write = File.GetLastWriteTimeUtc(_chartPath);
-            _player.SetChartAlive(File.Exists(_chartPath) && (DateTime.UtcNow - write).TotalSeconds < ChartStaleS);
+            ChartAlive = File.Exists(_chartPath) && (DateTime.UtcNow - write).TotalSeconds < ChartStaleS;
+            _player.SetChartAlive(ChartAlive);
             if (write == _lastWrite)
                 return;
             var json = File.ReadAllText(_chartPath);

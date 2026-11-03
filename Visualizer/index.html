@@ -15,21 +15,32 @@
              overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
   /* fixed widths so the header doesn't shift as values change */
   #src { width: 200px; } #strobe { width: 62px; } #fog { width: 28px; } #bpm { width: 64px; } #outs { width: 190px; }
-  /* output menu */
+  /* input and output menus */
   .outwrap { position: relative; }
-  #outBtn { background: none; border: 1px solid transparent; padding: 2px 6px; margin: -3px 0; font: inherit; cursor: pointer; text-align: left; }
+  .menuBtn { background: none; border: 1px solid transparent; padding: 2px 6px; margin: -3px 0; font: inherit; cursor: pointer; text-align: left; }
   #outBtn #outs { width: auto; max-width: 260px; }
-  #outBtn:hover, #outBtn[aria-expanded=true] { border-color: var(--line); background: var(--panel); }
-  #outMenu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: 360px; max-width: calc(100vw - 32px);
-             background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px;
-             box-shadow: 0 8px 24px #000a; }
-  #outMenu[hidden] { display: none; }
-  #outMenu .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  #outMenu select { flex: 1; min-width: 0; }
-  #outMenu input[type=number] { width: 90px; }
-  #outMenu .note { color: var(--dim); font-size: 12px; }
-  #outMenu .err { color: #ff7a6b; font-size: 12px; }
-  #outMenu .err:empty { display: none; }
+  .menuBtn:hover, .menuBtn[aria-expanded=true] { border-color: var(--line); background: var(--panel); }
+  .menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: 360px; max-width: calc(100vw - 32px);
+          background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px;
+          box-shadow: 0 8px 24px #000a; }
+  #inMenu { left: 0; right: auto; width: 420px; white-space: normal; color: var(--text); }
+  .menu[hidden] { display: none; }
+  .menu .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .menu select { flex: 1; min-width: 0; }
+  .menu input[type=number] { width: 90px; }
+  .menu .note { color: var(--dim); font-size: 12px; }
+  .menu .err { color: #ff7a6b; font-size: 12px; }
+  .menu .err:empty { display: none; }
+  .menu .warnbox { color: #ffb15c; font-size: 12px; }
+  .menu ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; color: var(--dim); }
+  .menu code { color: var(--text); font: 12px ui-monospace, monospace; }
+  .step { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .step .head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .step .head .state { margin-left: auto; font-weight: 400; font-size: 12px; color: var(--dim); }
+  .step .head .state.ok { color: #6fd98a; }
+  .step .head .state.todo { color: #ffb15c; }
+  #inMenu[data-input=reaper] .forYarg, #inMenu[data-input=sim] .forYarg, #inMenu[data-input=yarg] .forReaper,
+  #inMenu[data-input=sim] .forReaper { display: none; }
   #stage.off::after { content: 'Visualizer off'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); }
   #stage { position: relative; height: 56vh; min-height: 280px; overflow: hidden; background: #040507; }
   #wall { position: absolute; inset: 0; }
@@ -109,13 +120,47 @@
 <body>
 <header>
   <b>Lumenator 5000</b>
-  <div class="kv">input<span id="src">-</span></div>
+  <div class="outwrap" id="inWrap">
+    <button id="inBtn" class="kv menuBtn" aria-expanded="false" aria-controls="inMenu">input<span id="src">-</span> ▾</button>
+    <div id="inMenu" class="menu" role="dialog" aria-label="Input" hidden>
+      <div class="row" role="radiogroup" aria-label="Where the show comes from">
+        <label><input type="radio" name="input" value="yarg"> YARG</label>
+        <label><input type="radio" name="input" value="reaper"> REAPER</label>
+        <label><input type="radio" name="input" value="sim"> Demo song</label>
+      </div>
+      <div id="inProblem" class="err"></div>
+      <div class="forYarg step">
+        <div class="note">In YARG: Settings &gt; All Settings &gt; Lighting &gt; <b>Enable DMX output</b>, universe <span id="inYargUni">1</span>.
+          Turn on <b>Data Stream</b> too if you can: it's the better feed.</div>
+      </div>
+      <div class="forReaper step">
+        <div class="head">1. Chart script <span class="state" id="rpScriptState"></span></div>
+        <div class="note" id="rpScriptNote"></div>
+        <div class="row"><button class="primary" id="rpInstall" hidden>Set up</button><button id="rpRemove" hidden>Remove</button></div>
+      </div>
+      <div class="forReaper step">
+        <div class="head">2. Position from REAPER <span class="state" id="rpOscState"></span></div>
+        <div class="warnbox" id="rpOscWarn" hidden>REAPER is also accepting commands from your network, so anyone who can reach
+          this PC could trigger its actions. Lumenator doesn't need that: in the steps below, pick a <b>Mode</b> that only sends.</div>
+        <ol id="rpOscSteps">
+          <li>In REAPER: Options &gt; Preferences &gt; Control/OSC/web, then <b>Add</b> (or edit the OSC one).</li>
+          <li>Control surface mode: <b>OSC (Open Sound Control)</b>. Pattern config: <b>Default</b>.</li>
+          <li>Mode: the option that only sends to a device, with no local port.</li>
+          <li>Device IP <code>127.0.0.1</code>, device port <code>9000</code>. Click OK, then Apply.</li>
+        </ol>
+      </div>
+      <div class="forReaper step">
+        <div class="head">3. Chart <span class="state" id="rpLiveState"></span></div>
+        <div class="note" id="rpLiveNote"></div>
+      </div>
+    </div>
+  </div>
   <div class="kv">strobe<span id="strobe">-</span></div>
   <div class="kv">fog<span id="fog">-</span></div>
   <div class="kv">tempo<span id="bpm">-</span></div>
-  <div class="outwrap">
-    <button id="outBtn" class="kv" aria-expanded="false" aria-controls="outMenu">outputs<span id="outs">-</span> ▾</button>
-    <div id="outMenu" role="dialog" aria-label="Outputs" hidden>
+  <div class="outwrap" id="outWrap">
+    <button id="outBtn" class="kv menuBtn" aria-expanded="false" aria-controls="outMenu">outputs<span id="outs">-</span> ▾</button>
+    <div id="outMenu" class="menu" role="dialog" aria-label="Outputs" hidden>
       <label class="row"><input type="checkbox" id="outViz"> Visualizer <span class="note">draw the lights on this page</span></label>
       <div class="row">
         <label for="outUsb">USB adapter</label>
@@ -143,7 +188,7 @@
   <section id="lights">
     <div class="bar"><h2>Lights</h2><span id="status"></span>
       <span class="ch" id="controlLabel">Control:</span>
-      <span class="seg" role="group" aria-labelledby="controlLabel"><button id="modeYarg" aria-pressed="true">YARG</button><button id="modeManual" aria-pressed="false">Manual</button></span>
+      <span class="seg" role="group" aria-labelledby="controlLabel"><button id="modeYarg" aria-pressed="true">Show</button><button id="modeManual" aria-pressed="false">Manual</button></span>
     </div>
     <div class="tablewrap"><table>
       <thead>
@@ -317,7 +362,7 @@ function setManual(next, note) {
 }
 // a bit toggles on (W: all three) unless it's already fully on, then off
 const flip = (m, b) => (m & b) === b ? m & ~b : m | b;
-$('modeYarg').addEventListener('click', () => setManual(null, 'YARG is driving the lights'));
+$('modeYarg').addEventListener('click', () => setManual(null, 'The show is driving the lights'));
 $('modeManual').addEventListener('click', () => { if (!manual) setManual(fixtures.map(() => 0), 'Manual: every light starts off'); });
 $('lights').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -434,8 +479,73 @@ function openOutMenu(open) {
   if (open) scanUsb();
 }
 $('outBtn').addEventListener('click', () => openOutMenu($('outMenu').hidden));
-document.addEventListener('click', e => { if (!e.target.closest('.outwrap')) openOutMenu(false); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('outMenu').hidden) { openOutMenu(false); $('outBtn').focus(); } });
+document.addEventListener('click', e => {
+  if (!e.target.closest('#outWrap')) openOutMenu(false);
+  if (!e.target.closest('#inWrap')) openInMenu(false);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!$('outMenu').hidden) { openOutMenu(false); $('outBtn').focus(); }
+  if (!$('inMenu').hidden) { openInMenu(false); $('inBtn').focus(); }
+});
+
+// --- input menu: YARG, REAPER or the demo song, saved to rig.json; and what each one needs
+let inTouchedAt = -Infinity, inError = '', reaperPoll = null, reaperBusy = false;
+function openInMenu(open) {
+  $('inMenu').hidden = !open;
+  $('inBtn').setAttribute('aria-expanded', open);
+  clearInterval(reaperPoll);
+  reaperPoll = null;
+  if (open) { refreshReaper(); reaperPoll = setInterval(refreshReaper, 1500); }
+}
+$('inBtn').addEventListener('click', () => openInMenu($('inMenu').hidden));
+document.querySelectorAll('input[name=input]').forEach(r => r.addEventListener('change', async () => {
+  inTouchedAt = performance.now();
+  $('inMenu').dataset.input = r.value;
+  const res = await post('/api/input', { input: r.value });
+  inError = res.ok ? '' : res.error;
+  refreshReaper();
+}));
+async function refreshReaper(action = 'status') {
+  if ($('inMenu').dataset.input !== 'reaper' || (reaperBusy && action === 'status')) return;
+  reaperBusy = true;
+  const s = await post('/api/reaper', { action }).finally(() => { reaperBusy = false; });
+  const mark = (id, ok, text) => { $(id).textContent = text; $(id).className = 'state ' + (ok ? 'ok' : 'todo'); };
+  if (s.error) inError = s.error;
+  else if (action !== 'status') inError = '';
+  mark('rpScriptState', s.installed, s.installed ? 'Starts with REAPER' : s.reaperFound ? 'Not set up' : 'REAPER not found');
+  $('rpScriptNote').textContent = s.installed
+    ? 'Lumenator keeps a small read-only script in REAPER\'s Scripts folder, started by a line in __startup.lua.'
+    : s.reaperFound
+      ? 'Set up adds a small read-only script to REAPER\'s Scripts folder and a line in __startup.lua, so it starts with REAPER. Nothing else there is changed.'
+      : 'Lumenator looks for REAPER\'s settings in %APPDATA%\\REAPER. Install and run REAPER once, then try again.';
+  $('rpInstall').hidden = s.installed || !s.reaperFound;
+  $('rpRemove').hidden = !s.installed;
+  mark('rpOscState', s.oscSends && !s.oscAcceptsCommands, s.oscSends ? (s.oscAcceptsCommands ? 'Working, but open to the network' : 'Set') : 'Not set');
+  $('rpOscWarn').hidden = !s.oscAcceptsCommands;
+  $('rpOscSteps').hidden = s.oscSends && !s.oscAcceptsCommands;
+  mark('rpLiveState', s.chartLive, s.chartLive ? 'Live' : 'Nothing yet');
+  $('rpLiveNote').textContent = s.chartLive ? 'Press play in REAPER.'
+    : s.installed ? 'Open a project with a VENUE track. If you just set this up, restart REAPER first so the script starts.'
+    : 'Waiting for the chart script.';
+  showInProblems();
+}
+$('rpInstall').addEventListener('click', () => refreshReaper('install'));
+$('rpRemove').addEventListener('click', () => refreshReaper('remove'));
+function showInProblems(problem = lastInputProblem) { $('inProblem').textContent = [inError, problem].filter(Boolean).join(' · '); }
+let lastInputProblem = '';
+function showInput(d) {
+  lastInputProblem = d.inputProblem;
+  $('inYargUni').textContent = d.output?.yargUniverse ?? 1;
+  showInProblems();
+  if (performance.now() - inTouchedAt < 1500) return;
+  if ($('inMenu').dataset.input !== d.inputKind) {
+    $('inMenu').dataset.input = d.inputKind;
+    const r = document.querySelector(`input[name=input][value=${d.inputKind}]`);
+    if (r) r.checked = true;
+    if (!$('inMenu').hidden) refreshReaper();
+  }
+}
 
 async function scanUsb() {
   $('outScan').disabled = true;
@@ -512,6 +622,7 @@ es.onmessage = ev => {
   $('strobe').textContent = d.strobe; $('fog').textContent = d.fog ? 'on' : 'off';
   $('bpm').textContent = d.bpm ? Math.round(d.bpm) + ' bpm' : '-'; $('outs').textContent = d.outputs;
   showOutputs(d.output);
+  showInput(d);
 };
 es.onerror = () => { $('src').textContent = 'disconnected'; };
 </script>

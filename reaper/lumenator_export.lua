@@ -1,6 +1,7 @@
--- Lumenator 5000: keeps the open REAPER project's chart in a file for `Lumenator --reaper`, including edits
--- you haven't saved. Read-only: it changes nothing in the project. Runs until you terminate it (run it again
--- and choose to terminate it) or close REAPER.
+-- Lumenator 5000: keeps the open REAPER project's chart in a file for Lumenator's REAPER input, including
+-- edits you haven't saved. Read-only: it changes nothing in the project. Lumenator can start this with REAPER
+-- (Inputs > REAPER), or run it from the Actions list. It runs until REAPER closes, and does nothing while the
+-- open project has no VENUE track.
 local folder = os.getenv("LOCALAPPDATA") .. "\\Lumenator"
 local path = folder .. "\\reaper_chart.json"
 
@@ -104,7 +105,17 @@ local function midiHash()
   return table.concat(parts, "|")
 end
 
+local function hasVenue()
+  for i = 0, reaper.CountTracks(0) - 1 do
+    if trackName(reaper.GetTrack(0, i)) == "VENUE" then
+      return true
+    end
+  end
+  return false
+end
+
 local lastChange, lastHash, lastHashCheck, lastExport = -1, nil, 0, 0
+local active = false
 
 local function loop()
   local now = reaper.time_precise()
@@ -116,13 +127,18 @@ local function loop()
   end
   if now - lastHashCheck >= HASH_CHECK_S then
     lastHashCheck = now
-    local hash = midiHash()
-    if hash ~= lastHash then
-      lastHash = hash
-      due = true
+    active = hasVenue()
+    if active then
+      local hash = midiHash()
+      if hash ~= lastHash then
+        lastHash = hash
+        due = true
+      end
+    else
+      lastHash = nil
     end
   end
-  if due then
+  if due and active then
     lastExport = now
     export()
   end
@@ -130,5 +146,4 @@ local function loop()
 end
 
 reaper.RecursiveCreateDirectory(folder, 0)
-reaper.ShowConsoleMsg("Lumenator: sharing this project's chart. Now run: Lumenator --reaper\n")
 loop()

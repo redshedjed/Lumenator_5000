@@ -6,6 +6,7 @@
 //   Lumenator [--rig rig.json] [--sim | --reaper] [--port 8080] [--no-visualizer]
 //     --sim      fake YARG: a looping demo song sent as real sACN (no game needed)
 //     --reaper   follow a chart being edited in REAPER instead of YARG
+//   Without either, the input is rig.json's, which the visualizer's input menu sets.
 
 using System.Diagnostics;
 using YargDmx;
@@ -50,14 +51,59 @@ Console.WriteLine($"rig: {rigPath} ({rig.Fixtures.Count} fixtures, {rig.Looks.Co
 var clock = Stopwatch.StartNew();
 var decoder = new YargDecoder(rig.Channels, clock);
 var show = new Show(rig);
-// one input: a chart in REAPER, the simulator, or YARG
-using var receiver = reaper ? null : new E131Receiver(rig.Universe, decoder.OnFrame);
-if (receiver != null)
-    Console.WriteLine($"listening for YARG on sACN universe {rig.Universe}");
-// YARG's UDP data stream, when it's switched on in YARG: tempo, pause, spotlights... and no clashing channels
+
+// one input at a time: YARG, the simulator or a chart in REAPER. A command-line choice lasts until the menu
+// or rig.json changes it.
+string? inputChoice = sim ? "sim" : reaper ? "reaper" : null;
+string inputKind = "", inputProblem = "";
+E131Receiver? receiver = null;
 DataStreamReceiver? stream = null;
-if (!sim && !reaper)
+YargSimulator? simulator = null;
+ReaperInput? reaperInput = null;
+var reaperSetup = new ReaperSetup();
+string WantedInput() => inputChoice ?? rig.Input;
+
+void CloseInput()
 {
+    reaperInput?.Dispose();
+    simulator?.Dispose();
+    stream?.Dispose();
+    receiver?.Dispose();
+    (reaperInput, simulator, stream, receiver) = (null, null, null, null);
+}
+
+void OpenInput(string kind)
+{
+    CloseInput();
+    inputKind = kind;
+    inputProblem = "";
+    decoder = new YargDecoder(rig.Channels, clock);      // nothing carries over from the last input
+    try
+    {
+        if (kind == "reaper")
+        {
+            TryRefreshReaperScript();
+            reaperInput = new ReaperInput(decoder, clock);
+            Console.WriteLine($"following REAPER: OSC on UDP {ReaperInput.OscPort}, chart from {ReaperInput.DefaultChartPath}");
+            return;
+        }
+        receiver = new E131Receiver(rig.Universe, decoder.OnFrame);
+        Console.WriteLine($"listening for YARG on sACN universe {rig.Universe}");
+        if (kind == "sim")
+        {
+            simulator = new YargSimulator(rig.Channels, rig.Universe);
+            receiver.Sources.Only = simulator.SourceId;  // not YARG too, if it's running
+            Console.WriteLine("simulator: sending a demo song as YARG would");
+            return;
+        }
+    }
+    catch (System.Net.Sockets.SocketException e)
+    {
+        inputProblem = kind == "reaper" ? $"Can't listen on UDP {ReaperInput.OscPort}: {e.Message}" : $"Can't listen for sACN: {e.Message}";
+        Console.WriteLine(inputProblem);
+        return;
+    }
+    // YARG's UDP data stream, when it's switched on in YARG: tempo, pause, spotlights... and no clashing channels
     try
     {
         stream = new DataStreamReceiver(decoder.OnDataStream);
@@ -68,28 +114,17 @@ if (!sim && !reaper)
         Console.WriteLine($"data stream: can't listen on UDP {DataStreamPacket.Port} ({e.Message}); sACN only");
     }
 }
-using var streamOwner = stream;
-using var simulator = sim ? new YargSimulator(rig.Channels, rig.Universe) : null;
-if (simulator != null)
+
+void TryRefreshReaperScript()
 {
-    receiver!.Sources.Only = simulator.SourceId;     // not YARG too, if it's running
-    Console.WriteLine("simulator: sending a demo song as YARG would");
-}
-ReaperInput? reaperInput = null;
-if (reaper)
-{
-    try
+    try { reaperSetup.Refresh(); }
+    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
     {
-        reaperInput = new ReaperInput(decoder, clock);
-        Console.WriteLine($"following REAPER: OSC on UDP {ReaperInput.OscPort}, chart from {ReaperInput.DefaultChartPath}");
-    }
-    catch (System.Net.Sockets.SocketException e)
-    {
-        Console.WriteLine($"REAPER: can't listen on UDP {ReaperInput.OscPort} ({e.Message})");
-        return 1;
+        Console.WriteLine($"REAPER: couldn't update the script ({e.Message})");
     }
 }
-using var reaperOwner = reaperInput;
+
+OpenInput(WantedInput());
 
 var outputs = new List<IDmxOutput>();
 var outputProblems = new List<string>();      // shown in the visualizer's output menu
@@ -194,6 +229,43 @@ if (viz != null)
         }
     };
     viz.OnManual = bits => show.Manual = bits;
+    // the input menu: saved into rig.json, and the main loop switches
+    viz.OnInput = value =>
+    {
+        lock (rigWrite)
+        {
+            try
+            {
+                var text = RigFile.SetText(File.ReadAllText(rigPath), "input", value);
+                Rig.Parse(text);
+                File.WriteAllText(rigPath, text);
+                inputChoice = value;
+                return null;
+            }
+            catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or FormatException)
+            {
+                return e.Message;
+            }
+        }
+    };
+    // what the menu shows for REAPER, and what it can do about it
+    viz.OnReaper = action =>
+    {
+        string? error = null;
+        try
+        {
+            if (action == "install") reaperSetup.Install();
+            else if (action == "remove") reaperSetup.Remove();
+            var (sends, acceptsCommands) = reaperSetup.Osc();
+            return new { ok = true, error, reaperFound = reaperSetup.ReaperFound, installed = reaperSetup.Installed, oscSends = sends,
+                         oscAcceptsCommands = acceptsCommands, chartLive = reaperInput?.ChartAlive ?? false };
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new { ok = false, error = (string?)e.Message, reaperFound = false, installed = false, oscSends = false,
+                         oscAcceptsCommands = false, chartLive = false };
+        }
+    };
     viz.OnUsbDevices = () =>
     {
         try { return new { ok = true, error = (string?)null, devices = FtdiOutput.Devices().Select(d => new { serial = d.Serial, description = d.Description }) }; }
@@ -262,11 +334,15 @@ while (!stop.IsCancellationRequested)
             var next = Rig.Load(rigPath);
             bool outputsChanged = next.Output.Ftdi != rig.Output.Ftdi || next.Output.UsbAdapter != rig.Output.UsbAdapter
                 || next.Output.SacnUniverse != rig.Output.SacnUniverse || next.Universe != rig.Universe;
+            bool universeChanged = next.Universe != rig.Universe;
+            if (next.Input != rig.Input)
+                inputChoice = null;                      // rig.json's own choice takes over
             rig = next;
             show.Rig = rig;
             decoder.Map = rig.Channels;
             frameMs = 1000 / Math.Clamp(rig.Output.Fps, 10, 60);
             if (outputsChanged) OpenOutputs();
+            if (universeChanged && inputKind != "reaper") OpenInput(WantedInput());
             Console.WriteLine($"rig reloaded ({rig.Fixtures.Count} fixtures, {rig.Looks.Count} looks)");
         }
         catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or FormatException or KeyNotFoundException)
@@ -274,6 +350,9 @@ while (!stop.IsCancellationRequested)
             Console.WriteLine($"rig.json not reloaded: {e.Message}");
         }
     }
+
+    if (WantedInput() != inputKind)
+        OpenInput(WantedInput());
 
     double now = clock.Elapsed.TotalSeconds;
     if (now >= usbRetryAt && WantsUsb(rig.Output))
@@ -302,8 +381,11 @@ while (!stop.IsCancellationRequested)
             colours = rig.Output.Visualizer
                 ? shown.Select(c => new[] { (int)Math.Round(c.R * 255), (int)Math.Round(c.G * 255), (int)Math.Round(c.B * 255) })
                 : null,
-            input = reaper ? state.Source : quiet ? "waiting" : state.Source == "data stream" ? "YARG data stream"
-                : receiver?.Sources.Source is { Length: > 0 } src ? src : sim ? "simulator" : "YARG",
+            input = inputProblem.Length > 0 ? "no input" : inputKind == "reaper" ? state.Source
+                : quiet ? "waiting" : state.Source == "data stream" ? "YARG data stream"
+                : receiver?.Sources.Source is { Length: > 0 } src ? src : inputKind == "sim" ? "simulator" : "YARG",
+            inputKind,
+            inputProblem,
             paused = state.Paused,
             cue = state.Waiting ? "waiting for a cue" : state.Cue.ToString(),
             look = show.LookName,
@@ -328,6 +410,7 @@ while (!stop.IsCancellationRequested)
     catch (OperationCanceledException) { }
 }
 
+CloseInput();
 foreach (var o in outputs) o.Dispose();
 Console.WriteLine("stopped");
 return 0;
