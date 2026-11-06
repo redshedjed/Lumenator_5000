@@ -113,7 +113,7 @@ public class ReaperTests
     public void AScrubGoesDarkWithoutReplayingAndTheNextCueWakesIt()
     {
         var r = new Rehearsal(ChartJson(string.Join(",", Text(1, "[lighting (frenzy)]"), Text(1, "[FogOn]"),
-            Text(3, "[lighting (stomp)]"), Note(20, 48), Text(30, "[lighting (verse)]"))));
+            Text(3, "[lighting (stomp)]"), Note(20, 48), Text(30, "[lighting (harmony)]"))));
         r.Play();
         r.PlayTo(0, 1.5);
         Assert.Equal(Cue.Frenzy, r.State.Cue);
@@ -128,6 +128,42 @@ public class ReaperTests
 
         r.Jump(29.5f);
         r.PlayTo(29.5, 30.5);
+        Assert.Equal(Cue.Harmony, r.State.Cue);
+        Assert.False(r.State.Waiting);
+    }
+
+    [Fact]
+    public void VerseAndChorusEndAStrobeButLeaveTheLastCueRunning()
+    {
+        var r = new Rehearsal(ChartJson(string.Join(",", Text(1, "[lighting (frenzy)]"), Text(2, "[lighting (strobe_fast)]"), Text(3, "[lighting (verse)]"))));
+        r.Play();
+        r.PlayTo(0, 2.5);
+        Assert.Equal(Strobe.Fast, r.State.Strobe);
+        r.PlayTo(2.5, 3.5);
+        Assert.Equal(Strobe.Off, r.State.Strobe);
+        Assert.Equal(Cue.Frenzy, r.State.Cue);
+    }
+
+    [Fact]
+    public void VerseOrChorusDontWakeTheLightsAfterAScrub()
+    {
+        var r = new Rehearsal(ChartJson(string.Join(",", Text(5, "[lighting (chorus)]"), Text(7, "[lighting (frenzy)]"))));
+        r.Play();
+        r.Jump(4.5f);
+        r.PlayTo(4.5, 5.5);
+        Assert.True(r.State.Waiting);                       // no cue to show yet: not the NoCue look
+        r.PlayTo(5.5, 7.5);
+        Assert.False(r.State.Waiting);
+        Assert.Equal(Cue.Frenzy, r.State.Cue);
+    }
+
+    [Fact]
+    public void VerseChorusLooksShowInThePreview()
+    {
+        var r = new Rehearsal(ChartJson(Text(1, "[lighting (verse)]")));
+        r.Decoder.VerseChorusLooks = true;
+        r.Play();
+        r.PlayTo(0, 1.5);
         Assert.Equal(Cue.Verse, r.State.Cue);
         Assert.False(r.State.Waiting);
     }
@@ -222,6 +258,42 @@ public class ReaperTests
         Assert.Equal(Strobe.Fast, r.State.Strobe);
         r.PlayTo(2.5, 3.5);
         Assert.Equal(Strobe.Off, r.State.Strobe);
+    }
+
+    [Fact]
+    public void AKeyframeEndsAStrobeAsInYarg()
+    {
+        var r = new Rehearsal(ChartJson(string.Join(",", Text(1, "[lighting (stomp)]"), Text(2, "[lighting (strobe_fast)]"), Note(3, 48))));
+        r.Play();
+        r.PlayTo(0, 2.5);
+        Assert.Equal(Strobe.Fast, r.State.Strobe);
+        r.PlayTo(2.5, 3.5);
+        Assert.Equal(Strobe.Off, r.State.Strobe);
+        Assert.Equal(Cue.Stomp, r.State.Cue);
+    }
+
+    [Fact]
+    public void AKeyframeWhileWaitingStillEndsAStrobe()
+    {
+        var r = new Rehearsal(ChartJson(string.Join(",", Text(1, "[lighting (strobe_slow)]"), Note(2, 48))));
+        r.Play();
+        r.PlayTo(0, 1.5);
+        Assert.Equal(Strobe.Slow, r.State.Strobe);
+        r.PlayTo(1.5, 2.5);
+        Assert.Equal(Strobe.Off, r.State.Strobe);
+        Assert.Equal(0, r.State.Count(Trigger.Keyframe));   // waiting: the keyframe itself does nothing
+    }
+
+    [Theory]
+    [InlineData("strobe_medium")]
+    [InlineData("strobe_fastest")]
+    [InlineData("strobe_off")]
+    [InlineData("not_a_cue")]
+    public void ALightingNameYargDoesntKnowIsTheDefaultCue(string name)
+    {
+        var chart = ReaperChart.Parse(ChartJson(Text(1, $"[lighting ({name})]")));
+        Assert.Equal(new ChartEvent[] { new(1, ChartKind.Cue, (int)Cue.Default) }, chart.Events);
+        Assert.Empty(chart.Ignored);
     }
 
     [Fact]

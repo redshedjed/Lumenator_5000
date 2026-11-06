@@ -49,7 +49,7 @@ catch (Exception e) when (e is IOException or InvalidDataException or System.Tex
 Console.WriteLine($"rig: {rigPath} ({rig.Fixtures.Count} fixtures, {rig.Looks.Count} looks)");
 
 var clock = Stopwatch.StartNew();
-var decoder = new YargDecoder(rig.Channels, clock);
+var decoder = new YargDecoder(rig.Channels, clock) { VerseChorusLooks = rig.VerseChorusLooks };
 var show = new Show(rig);
 
 // one input at a time: YARG, the simulator or a chart in REAPER. A command-line choice lasts until the menu
@@ -77,7 +77,8 @@ void OpenInput(string kind)
     CloseInput();
     inputKind = kind;
     inputProblem = "";
-    decoder = new YargDecoder(rig.Channels, clock);      // nothing carries over from the last input
+    // nothing carries over from the last input
+    decoder = new YargDecoder(rig.Channels, clock) { VerseChorusLooks = rig.VerseChorusLooks };
     try
     {
         if (kind == "reaper")
@@ -340,6 +341,7 @@ while (!stop.IsCancellationRequested)
             rig = next;
             show.Rig = rig;
             decoder.Map = rig.Channels;
+            decoder.VerseChorusLooks = rig.VerseChorusLooks;
             frameMs = 1000 / Math.Clamp(rig.Output.Fps, 10, 60);
             if (outputsChanged) OpenOutputs();
             if (universeChanged && inputKind != "reaper") OpenInput(WantedInput());

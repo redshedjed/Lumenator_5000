@@ -79,6 +79,9 @@ It's an editor's preview, not the whole show:
 - It shows Lumenator's reading of your chart, not YARG's, so check the result in the game. The `stagekit`
   look stays dark, because YARG makes those patterns. Notes are the Expert gems as charted, on `PART DRUMS`,
   `GUITAR`, `BASS` and `KEYS`.
+- It follows YARG's reading of the events: `strobe_slow` and `strobe_fast` are the only strobes a chart can
+  name (any other name in `[lighting (...)]`, `strobe_medium` included, is the `Default` cue), and any cue or
+  keyframe ends a strobe.
 
 ## rig.json
 
@@ -92,6 +95,8 @@ It's an editor's preview, not the whole show:
 - `looks`: what the lights do while a cue is up.
 - `cues`: YARG cue to look; `"*"` covers every other cue.
 - `post_processing`: what each YARG screen effect does to the whole rig (below).
+- `verse_chorus_looks`: off (the default), `Verse` and `Chorus` change nothing and the last cue runs on, as on
+  YARG's Stage Kit, though they still end a strobe. On, they get the looks `cues` gives them.
 - `strobe_per_beat`: YARG's strobe cues become a white software strobe over any look, locked to the
   tempo (charts use Slow = 8th notes, 2 per beat, and Fast = 16th notes, 4 per beat; 0 to ignore).
 - `output`: `ftdi` (USB-DMX cable), `sacn_universe` (also send the result as sACN, e.g. to QLC+ or
@@ -125,7 +130,7 @@ drum channel.
 Every look takes `fade`: seconds to crossfade in from the previous look (default 0.3; flares and
 stomp use 0, blackout_slow 2).
 
-In the default `rig.json`, manual cues, `Verse` and `Chorus` step on keyframes, loops are spots
+In the default `rig.json`, manual cues (and `Verse` and `Chorus`, when they're on) step on keyframes, loops are spots
 rolling round the rig on the beat, `Stomp` is a white hit per keyframe, flares are one white hit,
 blackouts fade, `Searchlights` are two spots crossing. A song with no lighting cues (`NoCue`), and any
 cue left out, gets `band`: the rig plays the drums with the guitar's notes on top.
@@ -199,9 +204,9 @@ looks to use.
 
 Its quirks: it's undocumented (the layout, datagram version 3, is read from YARG's
 `DataStreamController`, so a YARG update could change it; other versions are ignored and sACN carries
-on). Verse and Chorus arrive as a song section rather than as the cue, so a Verse straight after
-another Verse can't be seen. A song with no lighting cues shows NoCue (the `band` look) until its
-first cue.
+on). Verse and Chorus arrive as a song section, apart from the lighting cue, so with `verse_chorus_looks`
+on, going back to what either one still holds doesn't show (Frenzy, Verse, Frenzy stays on Verse). A song with
+no lighting cues shows NoCue (the `band` look) until its first cue.
 
 ## Status
 

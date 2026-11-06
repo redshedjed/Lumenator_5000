@@ -102,7 +102,7 @@ public class DecoderTests
         d.OnDataStream(Playing(Lighting("CoolAutomatic")));
         Assert.Equal(Cue.CoolLoop, d.Snapshot().Cue);
         d.OnDataStream(Playing(Lighting("CoolAutomatic"), section: Lighting("Verse")));   // verse comes as the section
-        Assert.Equal(Cue.Verse, d.Snapshot().Cue);
+        Assert.Equal(Cue.CoolLoop, d.Snapshot().Cue);                      // and changes nothing, as on the Stage Kit
         d.OnDataStream(Playing(Lighting("FlareSlow"), Lighting("Verse")) with
         {
             Beat = 0, Keyframe = Lighting("KeyframeNext"), Strobe = Lighting("StrobeFast"), PostProcessing = 14,
@@ -129,6 +129,44 @@ public class DecoderTests
         Assert.Equal(Cue.Frenzy, s.Cue);                  // not sACN's cue
         Assert.Equal(0, s.Count(Trigger.Keyframe));
         Assert.True(s.Leds[0, 0]);                        // but its Stage Kit LEDs
+    }
+
+    [Fact]
+    public void VerseAndChorusLeaveTheLastCueRunning()
+    {
+        var stream = new YargDecoder(Map, Stopwatch.StartNew());
+        stream.OnDataStream(Playing() with { Scene = (byte)DataStreamPacket.Scenes.Menu });
+        stream.OnDataStream(Playing());
+        foreach (var (cue, section) in new[] { ("BlackoutFast", "Verse"), ("BlackoutFast", "Chorus"), ("Frenzy", "Chorus"), ("Frenzy", "Verse") })
+        {
+            stream.OnDataStream(Playing(Lighting(cue), Lighting(section)));
+            Assert.Equal(cue == "Frenzy" ? Cue.Frenzy : Cue.BlackoutFast, stream.Snapshot().Cue);
+        }
+
+        var sacn = new YargDecoder(Map, Stopwatch.StartNew());
+        sacn.OnFrame(Frame((Map.Cue, (byte)Cue.Frenzy)));
+        sacn.OnFrame(Frame((Map.Cue, (byte)Cue.Verse)));
+        Assert.Equal(Cue.Frenzy, sacn.Snapshot().Cue);
+        sacn.OnFrame(Frame((Map.Cue, (byte)Cue.Stomp)));
+        sacn.OnFrame(Frame((Map.Cue, (byte)Cue.Chorus)));
+        Assert.Equal(Cue.Stomp, sacn.Snapshot().Cue);
+    }
+
+    [Fact]
+    public void VerseChorusLooksGiveThemTheLights()
+    {
+        var stream = new YargDecoder(Map, Stopwatch.StartNew()) { VerseChorusLooks = true };
+        stream.OnDataStream(Playing() with { Scene = (byte)DataStreamPacket.Scenes.Menu });
+        stream.OnDataStream(Playing());
+        stream.OnDataStream(Playing(Lighting("Frenzy")));
+        stream.OnDataStream(Playing(Lighting("Frenzy"), Lighting("Verse")));
+        Assert.Equal(Cue.Verse, stream.Snapshot().Cue);
+        stream.OnDataStream(Playing(Lighting("Stomp"), Lighting("Verse")));
+        Assert.Equal(Cue.Stomp, stream.Snapshot().Cue);
+
+        var sacn = new YargDecoder(Map, Stopwatch.StartNew()) { VerseChorusLooks = true };
+        sacn.OnFrame(Frame((Map.Cue, (byte)Cue.Chorus)));
+        Assert.Equal(Cue.Chorus, sacn.Snapshot().Cue);
     }
 
     [Fact]

@@ -173,6 +173,10 @@ public sealed class Rig
     public ChannelMap Channels { get; set; } = new();
     public OutputConfig Output { get; set; } = new();
     public double Master { get; set; } = 1.0;
+    /// <summary>Verse and Chorus get their own looks. Off (the default) they change nothing and the last cue runs
+    /// on, as on YARG's Stage Kit. On, the data stream can't show a return to the cue it still holds, so
+    /// Frenzy, Verse, Frenzy stays on Verse.</summary>
+    public bool VerseChorusLooks { get; set; }
     /// <summary>Follow YARG's strobe cues (white strobe over everything), this many flashes per beat.</summary>
     public Dictionary<string, double> StrobePerBeat { get; set; } = new() { ["Slow"] = 2, ["Medium"] = 3, ["Fast"] = 4, ["Fastest"] = 6 };
     public Dictionary<string, Profile> Profiles { get; set; } = new();

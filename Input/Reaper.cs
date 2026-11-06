@@ -8,7 +8,8 @@ using System.Text.Json;
 namespace YargDmx.Input;
 
 /// <summary>One thing the chart says at a moment. Same-tick events run in this order, so a strobe on a
-/// cue's tick outlasts the cue clearing it, and a keyframe on a cue's tick counts for that cue.</summary>
+/// cue's tick outlasts the cue clearing it, a keyframe on a cue's tick counts for that cue, and a keyframe
+/// on a strobe's tick ends it (YARG reads a VENUE note after the text on its tick).</summary>
 public enum ChartKind { Cue, Strobe, Fog, Effect, Beat, Keyframe }
 
 /// <summary>Value: the Cue, Strobe or PostProcessing; Fog 1 on, 0 off; Beat 1 for a bar line; Keyframe 1
@@ -43,10 +44,11 @@ public sealed class ReaperChart
         ["bre"] = Cue.BigRockEnding,
     };
 
+    /// <summary>The only strobes a .mid can name (YARG.Core VenueLookup): strobe_medium, strobe_fastest and
+    /// strobe_off aren't in it, so they're the Default cue below.</summary>
     static readonly Dictionary<string, Strobe> Strobes = new()
     {
-        ["strobe_off"] = Strobe.Off, ["strobe_slow"] = Strobe.Slow, ["strobe_medium"] = Strobe.Medium,
-        ["strobe_fast"] = Strobe.Fast, ["strobe_fastest"] = Strobe.Fastest,
+        ["strobe_slow"] = Strobe.Slow, ["strobe_fast"] = Strobe.Fast,
     };
 
     /// <summary>The chart events for YARG's screen effects (the README's table).</summary>
@@ -132,7 +134,7 @@ public sealed class ReaperChart
         string name = t["[lighting (".Length..^2];
         if (Cues.TryGetValue(name, out var cue)) return new(at, ChartKind.Cue, (int)cue);
         if (Strobes.TryGetValue(name, out var strobe)) return new(at, ChartKind.Strobe, (int)strobe);
-        return null;
+        return new(at, ChartKind.Cue, (int)Cue.Default);     // as YARG does with a lighting name it doesn't know
     }
 
     /// <summary>Expert gems as the note bits YARG sends. A drum pad is a cymbal unless its tom marker

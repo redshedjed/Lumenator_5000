@@ -21,6 +21,9 @@
     "fog_channel": 0        // e.g. 100: a fog machine's channel, 255 while YARG's fog is on
   },
   "master": 0.94,
+  // false: Verse and Chorus change nothing and the last cue runs on, as on YARG's Stage Kit. true: they get
+  // their looks below, but the data stream can't show a return to a cue (Frenzy, Verse, Frenzy stays on Verse).
+  "verse_chorus_looks": false,
   // software strobe over everything while YARG's strobe is on, in flashes per beat (0 = ignore it).
   // Charts use Slow (8th notes) and Fast (16th notes).
   "strobe_per_beat": { "Slow": 2, "Medium": 3, "Fast": 4, "Fastest": 6 },

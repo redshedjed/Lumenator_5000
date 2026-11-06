@@ -154,6 +154,9 @@ public sealed class YargDecoder
     double _lastBeat = double.NegativeInfinity;
 
     public ChannelMap Map { get; set; }
+    /// <summary>Verse and Chorus take over the lights like other cues. Off, they change nothing and the last
+    /// cue runs on, as on YARG's Stage Kit (StageKitInterpreter ignores them). See <see cref="Rig.VerseChorusLooks"/>.</summary>
+    public bool VerseChorusLooks { get; set; }
 
     public YargDecoder(ChannelMap map, Stopwatch clock)
     {
@@ -327,8 +330,10 @@ public sealed class YargDecoder
                 switch (e.Kind)
                 {
                     case ChartKind.Cue:
-                        s.Waiting = false;
                         s.Strobe = Strobe.Off;       // as YARG does: any new cue ends a strobe
+                        if (Ignored((Cue)e.Value))
+                            break;                   // not a cue to wake up to: there's still no look to show
+                        s.Waiting = false;
                         SetCue(s, (Cue)e.Value, now);
                         break;
                     case ChartKind.Strobe: s.Strobe = (Strobe)e.Value; break;
@@ -336,6 +341,7 @@ public sealed class YargDecoder
                     case ChartKind.Effect: s.PostProcessing = (PostProcessing)e.Value; break;
                     case ChartKind.Beat: Beat(s, measure: e.Value == 1, now); break;
                     case ChartKind.Keyframe:
+                        s.Strobe = Strobe.Off;       // YARG ends a strobe on any other lighting event, keyframes too
                         if (!s.Waiting)
                             Keyframe(s, e.Value, now);
                         break;
@@ -349,9 +355,11 @@ public sealed class YargDecoder
 
     // --- shared by the inputs
 
-    static void SetCue(YargState s, Cue cue, double now)
+    bool Ignored(Cue cue) => cue is Cue.Verse or Cue.Chorus && !VerseChorusLooks;
+
+    void SetCue(YargState s, Cue cue, double now)
     {
-        if (cue == s.Cue)
+        if (cue == s.Cue || Ignored(cue))
             return;
         s.Cue = cue;
         s.CueSince = now;
