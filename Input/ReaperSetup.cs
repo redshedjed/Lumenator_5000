@@ -74,17 +74,17 @@ public sealed class ReaperSetup
     }
 
     /// <summary>The OSC control surface in reaper.ini sending to Lumenator, if any: Sends is whether one sends
-    /// to this PC on our port, and AcceptsCommands whether it's the mode (3, "device IP + local port") that
-    /// also listens on the network, where anyone who can reach it can trigger REAPER's actions.</summary>
+    /// to this PC on our port, and AcceptsCommands whether it has a local port too (0 is none), which REAPER
+    /// listens on from the network, where anyone who can reach it can trigger its actions.</summary>
     public (bool Sends, bool AcceptsCommands) Osc()
     {
         if (!ReaperFound)
             return (false, false);
         foreach (var line in File.ReadLines(Ini))
         {
-            var m = Regex.Match(line, @"^csurf_\d+=OSC\s+""[^""]*""\s+(\d+)\s+\d+\s+""([^""]*)""\s+(\d+)");
+            var m = Regex.Match(line, @"^csurf_\d+=OSC\s+""[^""]*""\s+\d+\s+(\d+)\s+""([^""]*)""\s+(\d+)");
             if (m.Success && m.Groups[2].Value == "127.0.0.1" && m.Groups[3].Value == ReaperInput.OscPort.ToString())
-                return (true, m.Groups[1].Value == "3");
+                return (true, m.Groups[1].Value != "0");
         }
         return (false, false);
     }

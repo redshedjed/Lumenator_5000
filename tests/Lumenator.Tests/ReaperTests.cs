@@ -425,7 +425,7 @@ public class ReaperTests
 
     [Theory]
     [InlineData("csurf_0=OSC \"Reaper\" 3 8000 \"127.0.0.1\" 9000 1024 10 \"\"", true, true)]   // also listens
-    [InlineData("csurf_0=OSC \"Reaper\" 1 0 \"127.0.0.1\" 9000 1024 10 \"\"", true, false)]
+    [InlineData("csurf_0=OSC \"Reaper\" 3 0 \"127.0.0.1\" 9000 1024 10 \"\"", true, false)]     // as REAPER saves send-only
     [InlineData("csurf_0=OSC \"Reaper\" 3 8000 \"192.168.1.5\" 9000 1024 10 \"\"", false, false)]  // another device
     [InlineData("csurf_0=OSC \"Reaper\" 3 8000 \"127.0.0.1\" 9001 1024 10 \"\"", false, false)]    // another port
     [InlineData("csurf_0=HTTP 0 9000 '' 'index.html' 0 ''", false, false)]                         // the web interface

@@ -1,5 +1,6 @@
 // The rig and the show. Saved changes are picked up while it runs (a broken file keeps the last good one).
 {
+  "input": "reaper",
   // YARG: Settings > All Settings > Lighting > DMX. Universe and channels must match what YARG sends.
   "universe": 1,
   // Must match YARG's DMX settings. YARG's defaults, except post-processing: moved from 23 (in YARG's
@@ -16,11 +17,11 @@
     "visualizer": true,     // draw the lights on the visualizer page
     "usb_adapter": "",      // FTDI USB-DMX ("Open DMX") cable by serial number; "" = none (untested)
     "ftdi": false,          // older setting: true = the first FTDI cable found, when usb_adapter is ""
-    "sacn_universe": 0,     // e.g. 2: also send the result as sACN (QLC+, an sACN node...); 0 = off
+    "sacn_universe": 2,     // e.g. 2: also send the result as sACN (QLC+, an sACN node...); 0 = off
     "visualizer_port": 8080,
     "fog_channel": 0        // e.g. 100: a fog machine's channel, 255 while YARG's fog is on
   },
-  "master": 0.94,
+  "master": 1,
   // false: Verse and Chorus change nothing and the last cue runs on, as on YARG's Stage Kit. true: they get
   // their looks below, but the data stream can't show a return to a cue (Frenzy, Verse, Frenzy stays on Verse).
   "verse_chorus_looks": false,
@@ -39,13 +40,13 @@
   },
   // left to right; x/y place them on the visualizer (0-1) and default to an even row
   "fixtures": [
-    { "name": "PAR 1", "address": 1, "profile": "par7", "x": 0.156, "y": 0.03, "level": 0.65 },
-    { "name": "PAR 4", "address": 22, "profile": "par7", "x": 0.291, "y": 0.458, "level": 0.81 },
+    { "name": "PAR 1", "address": 1, "profile": "par7", "x": 0.156, "y": 0.03 },
+    { "name": "PAR 4", "address": 22, "profile": "par7", "x": 0.291, "y": 0.458 },
     { "name": "Light 7", "address": 72, "profile": "par7", "x": 0.399, "y": 0.948 },
     { "name": "Derby", "address": 57, "profile": "derby8", "x": 0.496, "y": 0.146 },
     { "name": "Light 6", "address": 65, "profile": "par7", "x": 0.597, "y": 0.965 },
-    { "name": "PAR 5", "address": 29, "profile": "par7", "x": 0.71, "y": 0.485, "level": 0.86 },
-    { "name": "PAR 8", "address": 50, "profile": "par7", "x": 0.845, "y": 0, "level": 0.66 }
+    { "name": "PAR 5", "address": 29, "profile": "par7", "x": 0.71, "y": 0.485 },
+    { "name": "PAR 8", "address": 50, "profile": "par7", "x": 0.845, "y": 0 }
   ],
 
   // red/green/blue/yellow/orange/purple are also the fret and drum colours for the "frets" look

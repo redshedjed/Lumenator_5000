@@ -18,7 +18,8 @@
   /* input and output menus */
   .outwrap { position: relative; }
   .menuBtn { background: none; border: 1px solid transparent; padding: 2px 6px; margin: -3px 0; font: inherit; cursor: pointer; text-align: left; }
-  #outBtn #outs { width: auto; max-width: 260px; }
+  /* room for every output at once, so choosing another doesn't move the button or its menu */
+  #outBtn #outs { width: 300px; max-width: calc(100vw - 110px); }
   .menuBtn:hover, .menuBtn[aria-expanded=true] { border-color: var(--line); background: var(--panel); }
   .menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: 360px; max-width: calc(100vw - 32px);
           background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px;
@@ -473,9 +474,20 @@ function draw(colours) {
 
 // --- output menu: visualizer, USB-DMX adapter, sACN; saved to rig.json's "output" section
 let outTouchedAt = -Infinity, outError = '', lastOutput = null;
+// an open menu stays inside the window, wherever a narrow header has wrapped its button to
+function keepOnPage(menu) {
+  menu.style.transform = '';
+  if (menu.hidden) return;
+  const r = menu.getBoundingClientRect(), edge = 8;
+  const left = edge - r.left, right = document.documentElement.clientWidth - edge - r.right;
+  if (left > 0) menu.style.transform = `translateX(${left}px)`;
+  else if (right < 0) menu.style.transform = `translateX(${right}px)`;
+}
+window.addEventListener('resize', () => { keepOnPage($('outMenu')); keepOnPage($('inMenu')); });
 function openOutMenu(open) {
   $('outMenu').hidden = !open;
   $('outBtn').setAttribute('aria-expanded', open);
+  keepOnPage($('outMenu'));
   if (open) scanUsb();
 }
 $('outBtn').addEventListener('click', () => openOutMenu($('outMenu').hidden));
@@ -494,6 +506,7 @@ let inTouchedAt = -Infinity, inError = '', reaperPoll = null, reaperBusy = false
 function openInMenu(open) {
   $('inMenu').hidden = !open;
   $('inBtn').setAttribute('aria-expanded', open);
+  keepOnPage($('inMenu'));
   clearInterval(reaperPoll);
   reaperPoll = null;
   if (open) { refreshReaper(); reaperPoll = setInterval(refreshReaper, 1500); }
